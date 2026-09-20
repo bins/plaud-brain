@@ -1,0 +1,13 @@
+[Unit]
+Description=PLAUD brain one-shot ingestion/transcription
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/plaud-brain
+EnvironmentFile=/opt/plaud-brain/.env
+ExecStart=/opt/plaud-brain/.venv/bin/plaud-brain run-once
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

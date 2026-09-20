@@ -1,0 +1,11 @@
+[Unit]
+Description=Run PLAUD brain every 10 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

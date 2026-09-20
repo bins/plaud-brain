@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plaud-brain"
+version = "0.1.0"
+description = "Self-hosted PLAUD audio ingestion and local transcription pipeline"
+requires-python = ">=3.12"
+dependencies = [
+  "psycopg[binary]>=3.2,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9"]
+
+[project.scripts]
+plaud-brain = "plaud_brain.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

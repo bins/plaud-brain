@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: plaud_brain
+      POSTGRES_USER: plaud
+      POSTGRES_PASSWORD: plaud
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - plaud_pgdata:/var/lib/postgresql/data
+      - ./infra/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plaud -d plaud_brain"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  plaud_pgdata:
