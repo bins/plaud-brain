@@ -6,8 +6,8 @@ from pathlib import Path
 
 from plaud_brain.adapters.downloader import AudioDownloader
 from plaud_brain.adapters.plaud_cli import PlaudCliAdapter
-from plaud_brain.adapters.whisper_cpp import WhisperCppTranscriber
 from plaud_brain.store import PostgresStore
+from plaud_brain.types import Transcriber
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class Pipeline:
         store: PostgresStore,
         plaud: PlaudCliAdapter,
         downloader: AudioDownloader,
-        transcriber: WhisperCppTranscriber,
+        transcriber: Transcriber,
         data_dir: Path,
     ) -> None:
         self.store = store

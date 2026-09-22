@@ -1,15 +1,17 @@
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: plaud_brain_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: plaud_brain
       POSTGRES_USER: plaud
-      POSTGRES_PASSWORD: plaud
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
-      - plaud_pgdata:/var/lib/postgresql/data
-      - ./infra/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - plaud_brain_postgres_data:/var/lib/postgresql/data
+      - ./infra/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U plaud -d plaud_brain"]
       interval: 5s
@@ -17,4 +19,4 @@ services:
       retries: 20
 
 volumes:
-  plaud_pgdata:
+  plaud_brain_postgres_data:

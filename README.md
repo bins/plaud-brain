@@ -1,8 +1,9 @@
 # plaud-brain
 
-M0/M1 implementation of a self-hosted PLAUD ingestion and local speech-to-text pipeline.
+M3 implementation of a self-hosted PLAUD ingestion, configurable speech-to-text,
+structured-summary, and hybrid semantic retrieval pipeline.
 
-## M1 flow
+## Current flow
 
 ```text
 PLAUD device -> PLAUD Cloud -> PLAUD CLI -> audio download
@@ -11,10 +12,13 @@ PLAUD device -> PLAUD Cloud -> PLAUD CLI -> audio download
                               local data/audio
                                       |
                                       v
-                         ffmpeg -> 16 kHz mono WAV
+                         ffmpeg -> bounded WAV chunks
                                       |
-                                      v
-                       whisper.cpp + Vulkan (local)
+                          +-----------+-----------+
+                          |                       |
+                          v                       v
+                  OpenRouter Whisper      whisper.cpp CPU
+                       (primary)          (local fallback)
                                       |
                                       v
                          PostgreSQL transcript store
@@ -51,6 +55,22 @@ make whisper-model
 make run-once
 ```
 
+`make db-up` waits for PostgreSQL and applies every migration in order. The
+Compose database is exposed only on `127.0.0.1:5433`.
+
+On the current AMD Phoenix/RADV host, set `WHISPER_NO_GPU=true` in `.env`
+to use the stable CPU path. Set it to `false` only after validating the Vulkan
+driver and workload; the initial Vulkan smoke test caused a GPU reset.
+`WHISPER_THREADS=8` uses the eight physical CPU cores on this host; a 60-second
+sample improved from 51 seconds at four threads to 33 seconds at eight threads.
+
+Cloud STT is opt-in. Set `STT_PROVIDER=openrouter` and keep the OpenRouter key
+only in the ignored `.env` file. Audio is converted to 16 kHz mono WAV chunks,
+each successful chunk response is cached, and timestamps are merged back onto
+the original timeline. `STT_FALLBACK_PROVIDER=local` preserves local CPU STT
+when the cloud endpoint is unavailable. Set `STT_BASE_URL`, `STT_MODEL`, and
+`STT_API_KEY_ENV` to switch to another OpenAI-compatible transcription API.
+
 `plaud login` is interactive and intentionally not automated. PLAUD stores its own OAuth tokens under `~/.plaud/`.
 
 ## Commands
@@ -60,15 +80,97 @@ plaud-brain discover                 # discover recent recordings, upsert into D
 plaud-brain process                  # process pending downloads/transcriptions
 plaud-brain run-once                 # discover + process
 plaud-brain status                   # status counts
+plaud-brain recordings --limit 20    # list local recordings and transcript status
+plaud-brain transcript <plaud-id>    # print a transcript as plain text
+plaud-brain transcript <plaud-id> --format markdown --output transcript.md
+plaud-brain search "launch plan"     # search timestamped transcript segments
+plaud-brain knowledge-search "launch" # search transcripts, summaries, decisions, actions
+plaud-brain index                    # incrementally embed changed knowledge
+plaud-brain semantic-search "launch risks" # hybrid semantic + literal ranking
+plaud-brain show <plaud-id>           # combined summary and timestamped transcript
+plaud-brain decisions                 # list extracted decisions
+plaud-brain actions                   # list open action items
+plaud-brain action <uuid> done        # update one action item
+plaud-brain summarize <plaud-id>      # cloud summary using the selected provider
+plaud-brain summary <plaud-id>        # read an existing summary without a cloud call
 plaud-brain benchmark path/to.wav    # benchmark configured whisper model
+```
+
+Literal retrieval reads only from local PostgreSQL. `index` sends knowledge
+text to the configured embedding provider, and `semantic-search` sends the
+query. Audio is never sent by the embedding path.
+
+## Cloud summaries
+
+Cloud summaries use an OpenAI-compatible Chat Completions endpoint. DeepSeek is
+the default provider; only transcript text and timestamps are sent, never the
+source audio. Configure the untracked `.env` file:
+
+```dotenv
+SUMMARY_PROVIDER=deepseek
+SUMMARY_BASE_URL=https://api.deepseek.com
+SUMMARY_MODEL=deepseek-flash
+SUMMARY_API_KEY_ENV=DEEPSEEK_API_KEY
+DEEPSEEK_API_KEY=your-secret-key
+```
+
+Do not commit the API key. To switch providers, change `SUMMARY_PROVIDER`,
+`SUMMARY_BASE_URL`, `SUMMARY_MODEL`, and `SUMMARY_API_KEY_ENV` to another
+OpenAI-compatible service. Generate a summary with:
+
+```bash
+plaud-brain summarize <plaud-id> --format markdown --output summary.md
+```
+
+Summaries are stored in PostgreSQL and reused by default. Pass `--refresh` to
+replace one deliberately. Set `SUMMARY_AUTO=true` to let `run-once` generate
+summaries for transcribed recordings that do not have one yet.
+
+Decisions and action items are projected into relational tables when a summary
+is stored. Action status can be `open`, `done`, or `dismissed`; matching items
+keep their ID and status across an explicit summary refresh.
+
+## Semantic retrieval
+
+M3 uses an OpenAI-compatible embeddings endpoint. The default is OpenRouter's
+`qwen/qwen3-embedding-8b` at 1024 dimensions. Content hashes make indexing
+incremental: unchanged transcript segments, summaries, decisions, and actions
+reuse stored vectors without another API call. Configure `EMBEDDING_AUTO=true`
+to update the index at the end of `run-once`.
+
+The current corpus is small, so vectors are stored as JSONB in PostgreSQL and
+cosine similarity is calculated in the application. This avoids replacing the
+current database image solely to add pgvector. Revisit pgvector or a dedicated
+vector store when scan latency becomes material.
+
+## Scheduled ingestion
+
+The user-level systemd units in `deploy/systemd/` run ingestion 15 minutes
+after the previous run finishes, preventing overlapping CPU transcriptions.
+They also provide the non-interactive `PATH` required by the locally installed
+PLAUD CLI, Node.js, ffmpeg, and ffprobe.
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/plaud-brain.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now plaud-brain.timer
+systemctl --user status plaud-brain.timer
+```
+
+Inspect recent runs with:
+
+```bash
+journalctl --user -u plaud-brain.service -n 100 --no-pager
 ```
 
 ## Security
 
 - PostgreSQL binds to localhost only.
 - Audio/transcripts are ignored by git.
-- No cloud STT is enabled.
+- Cloud STT and cloud summaries are explicitly configured in the untracked `.env`.
+- OpenRouter receives bounded audio chunks; DeepSeek receives transcript text.
 - No PLAUD credential is copied into this repository.
-- Work recordings should remain local unless a later explicit policy enables cloud fallback.
+- Provider failures fall back to local STT, and successful cloud results are cached locally.
 
 See `docs/M1_RUNBOOK.md` for the host smoke test.

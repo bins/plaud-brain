@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -32,3 +32,7 @@ class TranscriptResult:
     raw_json: dict[str, Any]
     segments: list[TranscriptSegment]
     normalized_audio: Path
+
+
+class Transcriber(Protocol):
+    def transcribe(self, audio_path: Path, work_dir: Path) -> TranscriptResult: ...

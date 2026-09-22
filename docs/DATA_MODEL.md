@@ -1,4 +1,4 @@
-# Data model — M1
+# Data model — M3
 
 ## recordings
 One row per PLAUD recording. `plaud_id` is the external idempotency key.
@@ -11,5 +11,26 @@ One row per recording in M1. Stores STT engine/model/language and the raw whispe
 ## transcript_segments
 Ordered, timestamped segments. Speaker is nullable because diarization is M6 scope.
 
+## summaries
+One current structured summary per transcript. Stores provider, model, prompt
+version, and JSON content. The unique transcript key makes automatic summary
+generation idempotent; an explicit refresh replaces the current content.
+
+## decisions
+Ordered decisions projected from a structured summary, linked back to its
+recording through the summary and transcript. Optional timestamps reference the
+original audio timeline.
+
+## action_items
+Ordered actionable work projected from a summary. Each item has a deterministic
+fingerprint and a mutable `OPEN`, `DONE`, or `DISMISSED` status. Matching items
+retain identity and status when the summary is refreshed.
+
 ## processing_runs
-Audit trail of each download/STT attempt, including success/failure and error detail.
+Audit trail of each download, STT, and summary attempt, including failures.
+
+## embeddings
+Incremental semantic-search projection for transcript segments, summaries,
+decisions, and action items. Rows store the source identity, recording link,
+provider/model/dimensions, content hash, text snapshot, and JSONB vector.
+The content hash prevents paid recomputation when source text is unchanged.

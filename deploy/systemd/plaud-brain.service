@@ -1,0 +1,13 @@
+[Unit]
+Description=PLAUD local ingestion and transcription
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bins/plaud-brain
+Environment=PATH=/home/bins/.local/bin:/home/bins/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/bins/plaud-brain/.venv/bin/plaud-brain run-once
+TimeoutStartSec=3h
+Nice=10
+IOSchedulingClass=idle
