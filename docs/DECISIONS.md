@@ -75,3 +75,16 @@ Accepted. The installed PostgreSQL 16 image does not expose the pgvector
 extension, and the personal corpus is currently small. JSONB persistence plus
 an in-process scan avoids an infrastructure migration. Move to pgvector when
 measured index size or query latency warrants approximate/vector indexing.
+
+## ADR-015 — M4 answers require validated source citations
+Accepted. The QA model receives only the question and top retrieved sources.
+It must return structured JSON with inline source IDs. Deterministic code rejects
+unknown sources, uncited answers, mismatched inline citations, and citations on
+an insufficient-evidence response. Source text is explicitly treated as
+untrusted data to reduce prompt-injection risk.
+
+## ADR-016 — Cache answers against the embedding index signature
+Accepted. A cached answer is reusable only when the question, filters,
+provider/model settings, prompt version, and embedding row count/latest update
+are unchanged. Per-key PostgreSQL advisory locking prevents concurrent cache
+misses from creating duplicate paid requests.

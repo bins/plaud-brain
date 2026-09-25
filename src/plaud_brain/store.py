@@ -40,6 +40,17 @@ class PostgresStore:
             finally:
                 conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_name,))
 
+    @contextmanager
+    def rag_answer_lock(self, cache_key: str):
+        """Serialize generation for one cache key to avoid duplicate paid calls."""
+        lock_name = f"plaud-brain:rag:{cache_key}"
+        with self.connect() as conn:
+            conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (lock_name,))
+            try:
+                yield
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_name,))
+
     def upsert_recording(self, rec: PlaudRecording) -> dict:
         rid = uuid.uuid4()
         with self.connect() as conn, conn.cursor() as cur:
@@ -609,7 +620,7 @@ class PostgresStore:
         with self.connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT e.source_type, e.source_id, r.plaud_id, r.name,
+                SELECT e.source_type, e.source_id, r.plaud_id, r.name, r.created_at,
                        e.timestamp_ms, e.text_snapshot AS text, e.embedding
                 FROM embeddings e
                 JOIN recordings r ON r.id = e.recording_id
@@ -618,3 +629,56 @@ class PostgresStore:
                 (provider, model),
             )
             return list(cur.fetchall())
+
+    def embedding_index_signature(self, provider: str, model: str) -> str:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*)::int AS count, max(updated_at) AS latest
+                FROM embeddings WHERE provider=%s AND model=%s
+                """,
+                (provider, model),
+            )
+            row = cur.fetchone()
+            latest = row["latest"].isoformat() if row["latest"] else "none"
+            return f"{row['count']}:{latest}"
+
+    def get_rag_answer(self, cache_key: str) -> dict | None:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT response, created_at, updated_at
+                FROM rag_answers WHERE cache_key=%s
+                """,
+                (cache_key,),
+            )
+            return cur.fetchone()
+
+    def save_rag_answer(
+        self,
+        *,
+        cache_key: str,
+        query: str,
+        filters: dict,
+        provider: str,
+        model: str,
+        prompt_version: str,
+        index_signature: str,
+        response: dict,
+    ) -> None:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO rag_answers(
+                    id, cache_key, query, filters, provider, model,
+                    prompt_version, index_signature, response
+                ) VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    response=EXCLUDED.response,
+                    updated_at=now()
+                """,
+                (
+                    uuid.uuid4(), cache_key, query, json.dumps(filters), provider,
+                    model, prompt_version, index_signature, json.dumps(response, default=str),
+                ),
+            )

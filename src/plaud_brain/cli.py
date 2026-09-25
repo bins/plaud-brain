@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from datetime import date
 from pathlib import Path
 
 from plaud_brain.adapters.downloader import AudioDownloader
@@ -15,7 +16,13 @@ from plaud_brain.benchmark import run_benchmark
 from plaud_brain.config import Settings
 from plaud_brain.embedding_service import EmbeddingService
 from plaud_brain.pipeline import Pipeline
-from plaud_brain.presentation import render_knowledge_markdown, render_transcript_markdown, render_transcript_text
+from plaud_brain.presentation import (
+    render_knowledge_markdown,
+    render_rag_markdown,
+    render_transcript_markdown,
+    render_transcript_text,
+)
+from plaud_brain.rag_service import RagService
 from plaud_brain.store import PostgresStore
 from plaud_brain.summarizer import render_summary_markdown
 from plaud_brain.summary_service import SummaryService
@@ -81,6 +88,13 @@ def parser() -> argparse.ArgumentParser:
     semantic_search = sub.add_parser("semantic-search")
     semantic_search.add_argument("query")
     semantic_search.add_argument("--limit", type=int, default=20)
+    _add_retrieval_filters(semantic_search)
+    ask = sub.add_parser("ask")
+    ask.add_argument("question")
+    ask.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    ask.add_argument("--output", type=Path)
+    ask.add_argument("--refresh", action="store_true")
+    _add_retrieval_filters(ask)
     index = sub.add_parser("index")
     index.add_argument("--rebuild", action="store_true")
     actions = sub.add_parser("actions")
@@ -109,6 +123,18 @@ def parser() -> argparse.ArgumentParser:
     bench.add_argument("--label", default="manual")
     bench.add_argument("--out", type=Path, default=Path("benchmarks/results/stt.csv"))
     return p
+
+
+def _add_retrieval_filters(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--recording")
+    command.add_argument(
+        "--source-type",
+        action="append",
+        choices=("transcript", "summary", "decision", "action_item"),
+        dest="source_types",
+    )
+    command.add_argument("--since", type=date.fromisoformat)
+    command.add_argument("--until", type=date.fromisoformat)
 
 
 def main() -> None:
@@ -146,6 +172,22 @@ def main() -> None:
         batch_size=settings.embedding_batch_size,
         document_input_type=settings.embedding_document_input_type or None,
         query_input_type=settings.embedding_query_input_type or None,
+    )
+    qa_client = OpenAICompatibleClient(
+        provider=settings.qa_provider,
+        base_url=settings.qa_base_url,
+        model=settings.qa_model,
+        api_key_env=settings.qa_api_key_env,
+        timeout_seconds=settings.qa_timeout_seconds,
+    )
+    rag_service = RagService(
+        store,
+        embedding_service,
+        qa_client,
+        settings.qa_provider,
+        settings.qa_model,
+        top_k=settings.qa_top_k,
+        min_score=settings.qa_min_score,
     )
     if args.command == "discover":
         print(json.dumps({"discovered": pipeline.discover(settings.plaud_lookback_days, settings.plaud_page_size)}))
@@ -197,10 +239,38 @@ def main() -> None:
         print(json.dumps(store.search_knowledge(args.query, args.limit), indent=2, default=str, ensure_ascii=False))
     elif args.command == "semantic-search":
         try:
-            matches = embedding_service.search(args.query, args.limit)
+            matches = embedding_service.search(
+                args.query,
+                args.limit,
+                recording=args.recording,
+                source_types=set(args.source_types or []),
+                since=args.since,
+                until=args.until,
+            )
         except (EmbeddingProviderError, ValueError) as exc:
             raise SystemExit(str(exc)) from exc
         print(json.dumps(matches, indent=2, default=str, ensure_ascii=False))
+    elif args.command == "ask":
+        try:
+            result = rag_service.ask(
+                args.question,
+                recording=args.recording,
+                source_types=set(args.source_types or []),
+                since=args.since,
+                until=args.until,
+                refresh=args.refresh,
+            )
+        except (CloudProviderError, EmbeddingProviderError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        rendered = (
+            json.dumps(result, indent=2, default=str, ensure_ascii=False) + "\n"
+            if args.format == "json"
+            else render_rag_markdown(result)
+        )
+        if args.output:
+            args.output.write_text(rendered, encoding="utf-8")
+        else:
+            print(rendered, end="")
     elif args.command == "index":
         try:
             result = embedding_service.sync(rebuild=args.rebuild)

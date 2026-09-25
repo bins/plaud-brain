@@ -1,6 +1,7 @@
 from plaud_brain.presentation import (
     format_timestamp,
     render_knowledge_markdown,
+    render_rag_markdown,
     render_transcript_markdown,
     render_transcript_text,
 )
@@ -45,3 +46,27 @@ def test_render_knowledge_markdown():
     assert "## Summary" in rendered
     assert "Write tests — Alice" in rendered
     assert "## Transcript" in rendered
+
+
+def test_render_rag_markdown_includes_traceable_sources():
+    rendered = render_rag_markdown(
+        {
+            "answer": "Approved. [S1]",
+            "cached": True,
+            "provider": "deepseek",
+            "model": "flash",
+            "sources": [
+                {
+                    "id": "S1",
+                    "plaud_id": "recording-1",
+                    "name": "Planning",
+                    "source_type": "decision",
+                    "timestamp_ms": 42000,
+                    "score": 0.8123,
+                }
+            ],
+        }
+    )
+    assert "Approved. [S1]" in rendered
+    assert "Planning — decision — 00:00:42" in rendered
+    assert "Cached: yes" in rendered

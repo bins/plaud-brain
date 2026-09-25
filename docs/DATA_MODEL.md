@@ -1,4 +1,4 @@
-# Data model — M3
+# Data model — M4
 
 ## recordings
 One row per PLAUD recording. `plaud_id` is the external idempotency key.
@@ -34,3 +34,9 @@ Incremental semantic-search projection for transcript segments, summaries,
 decisions, and action items. Rows store the source identity, recording link,
 provider/model/dimensions, content hash, text snapshot, and JSONB vector.
 The content hash prevents paid recomputation when source text is unchanged.
+
+## rag_answers
+Cached grounded answers keyed by a SHA-256 digest of the normalized question,
+filters, QA/embedding models, prompt version, and embedding-index signature.
+The stored JSON contains only validated public citation metadata; retrieved
+evidence text is sent to the provider but is not duplicated into this table.

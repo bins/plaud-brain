@@ -1,4 +1,4 @@
-# Architecture — M3
+# Architecture — M4
 
 M0/M1 deliberately implements only ingestion and local transcription.
 
@@ -42,6 +42,13 @@ item is keyed by its database identity and content hash. Changed and new items
 are embedded in batches; unchanged vectors are reused and deleted sources are
 pruned. Query ranking is cosine similarity plus a small exact-substring bonus.
 The embedding provider is replaceable through environment configuration.
+
+M4 adds a grounded-answer projection over M3 retrieval. A question first checks
+an index-versioned PostgreSQL cache, then embeds and filters the query, selects
+the top evidence, and asks a provider-neutral chat-completions client for strict
+JSON. Source IDs are assigned by deterministic code and provider citations are
+validated against that allow-list before storage or display. Per-cache-key
+advisory locks prevent duplicate paid generation during concurrent requests.
 
 ## Idempotency
 

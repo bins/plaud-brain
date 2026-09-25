@@ -64,6 +64,13 @@ class Settings:
     embedding_document_input_type: str
     embedding_query_input_type: str
     embedding_auto: bool
+    qa_provider: str
+    qa_base_url: str
+    qa_model: str
+    qa_api_key_env: str
+    qa_timeout_seconds: int
+    qa_top_k: int
+    qa_min_score: float
     ffmpeg_bin: str
     ffprobe_bin: str
 
@@ -105,6 +112,13 @@ class Settings:
             embedding_document_input_type=os.getenv("EMBEDDING_DOCUMENT_INPUT_TYPE", ""),
             embedding_query_input_type=os.getenv("EMBEDDING_QUERY_INPUT_TYPE", ""),
             embedding_auto=_env_bool("EMBEDDING_AUTO"),
+            qa_provider=os.getenv("QA_PROVIDER", "deepseek").strip().lower(),
+            qa_base_url=os.getenv("QA_BASE_URL", "https://api.deepseek.com"),
+            qa_model=os.getenv("QA_MODEL", "deepseek-flash"),
+            qa_api_key_env=os.getenv("QA_API_KEY_ENV", "DEEPSEEK_API_KEY"),
+            qa_timeout_seconds=int(os.getenv("QA_TIMEOUT_SECONDS", "300")),
+            qa_top_k=int(os.getenv("QA_TOP_K", "8")),
+            qa_min_score=float(os.getenv("QA_MIN_SCORE", "0.45")),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         )

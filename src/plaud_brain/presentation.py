@@ -52,3 +52,21 @@ def render_knowledge_markdown(transcript: dict, summary: dict | None) -> str:
         speaker = f" **{segment['speaker']}**" if segment.get("speaker") else ""
         lines.append(f"- `{timestamp}`{speaker} {segment['text']}")
     return "\n".join(lines) + "\n"
+
+
+def render_rag_markdown(result: dict) -> str:
+    lines = ["# Answer", "", result["answer"], ""]
+    if result.get("sources"):
+        lines.extend(["## Sources", ""])
+        for source in result["sources"]:
+            label = source.get("name") or source["plaud_id"]
+            detail = f"[{source['id']}] {label} — {source['source_type']}"
+            if source.get("timestamp_ms") is not None:
+                detail += f" — {format_timestamp(source['timestamp_ms'])}"
+            detail += f" — score {source['score']:.3f}"
+            lines.append(f"- {detail}")
+        lines.append("")
+    lines.append(f"_Cached: {'yes' if result.get('cached') else 'no'}_  ")
+    if result.get("provider"):
+        lines.append(f"_Provider: {result['provider']} / {result['model']}_")
+    return "\n".join(lines).rstrip() + "\n"

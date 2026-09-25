@@ -85,10 +85,23 @@ class EmbeddingService:
         )
         return {"sources": len(sources), "indexed": indexed, "reused": len(sources) - indexed, "deleted": deleted}
 
-    def search(self, query: str, limit: int = 20) -> list[dict]:
+    def search(
+        self,
+        query: str,
+        limit: int = 20,
+        *,
+        recording: str | None = None,
+        source_types: set[str] | None = None,
+        since=None,
+        until=None,
+    ) -> list[dict]:
         query = query.strip()
         if not query:
             raise ValueError("search query must not be empty")
+        if limit < 1:
+            raise ValueError("search limit must be positive")
+        if since and until and since > until:
+            raise ValueError("since date must not be after until date")
         vector = self.client.embed([query], input_type=self.query_input_type)[0]
         if len(vector) != self.dimensions:
             raise ValueError(
@@ -100,6 +113,15 @@ class EmbeddingService:
         needle = query.casefold()
         results = []
         for row in self.store.list_embeddings(self.provider, self.model):
+            created_at = row.get("created_at")
+            if recording and row["plaud_id"] != recording:
+                continue
+            if source_types and row["source_type"] not in source_types:
+                continue
+            if since and (created_at is None or created_at.date() < since):
+                continue
+            if until and (created_at is None or created_at.date() > until):
+                continue
             candidate = row.pop("embedding")
             if len(candidate) != len(vector):
                 continue

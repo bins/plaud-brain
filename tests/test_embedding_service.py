@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import date, datetime, timezone
 
 from plaud_brain.embedding_service import EmbeddingService
 
@@ -28,6 +29,7 @@ class FakeStore:
                 "plaud_id": "p1",
                 "name": "One",
                 "timestamp_ms": 0,
+                "created_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
                 "text": "alpha",
             },
             {
@@ -37,6 +39,7 @@ class FakeStore:
                 "plaud_id": "p1",
                 "name": "One",
                 "timestamp_ms": 10,
+                "created_at": datetime(2026, 8, 1, tzinfo=timezone.utc),
                 "text": "beta",
             },
         ]
@@ -89,6 +92,7 @@ class FakeStore:
                 "plaud_id": row["plaud_id"],
                 "name": row["name"],
                 "timestamp_ms": row["timestamp_ms"],
+                "created_at": row["created_at"],
                 "text": row["text"],
                 "embedding": row["embedding"],
             }
@@ -145,3 +149,20 @@ def test_service_rejects_invalid_configuration():
         assert "batch size" in str(exc)
     else:
         raise AssertionError("zero batch size must be rejected")
+
+
+def test_search_filters_recording_source_type_and_date():
+    store = FakeStore()
+    client = FakeClient()
+    service = EmbeddingService(store, client, "test", "model", 2)
+    service.sync()
+
+    matches = service.search(
+        "alpha",
+        recording="p1",
+        source_types={"transcript"},
+        since=date(2026, 9, 1),
+        until=date(2026, 9, 30),
+    )
+
+    assert [match["source_type"] for match in matches] == ["transcript"]

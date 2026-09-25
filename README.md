@@ -1,7 +1,7 @@
 # plaud-brain
 
-M3 implementation of a self-hosted PLAUD ingestion, configurable speech-to-text,
-structured-summary, and hybrid semantic retrieval pipeline.
+M4 implementation of a self-hosted PLAUD ingestion, configurable speech-to-text,
+structured-summary, hybrid semantic retrieval, and cited question-answering pipeline.
 
 ## Current flow
 
@@ -87,6 +87,7 @@ plaud-brain search "launch plan"     # search timestamped transcript segments
 plaud-brain knowledge-search "launch" # search transcripts, summaries, decisions, actions
 plaud-brain index                    # incrementally embed changed knowledge
 plaud-brain semantic-search "launch risks" # hybrid semantic + literal ranking
+plaud-brain ask "what did we decide?" # grounded answer with recording citations
 plaud-brain show <plaud-id>           # combined summary and timestamped transcript
 plaud-brain decisions                 # list extracted decisions
 plaud-brain actions                   # list open action items
@@ -143,6 +144,25 @@ cosine similarity is calculated in the application. This avoids replacing the
 current database image solely to add pgvector. Revisit pgvector or a dedicated
 vector store when scan latency becomes material.
 
+## Cited question answering
+
+`ask` retrieves the strongest local evidence and sends only the question plus
+those selected text sources to the configured QA provider. Answers must cite
+the supplied source IDs inline; unknown, missing, or inconsistent citations are
+rejected. Returned sources include recording identity, source type, timestamp,
+and relevance score.
+
+```bash
+plaud-brain ask "What are my next actions?"
+plaud-brain ask "What was decided?" --source-type decision --since 2026-09-01
+plaud-brain ask "What happened?" --recording <plaud-id> --format json
+```
+
+Answers are cached against the question, filters, provider configuration, and
+current embedding-index signature. Repeating a question does not make another
+embedding or QA request while the knowledge index is unchanged. Use `--refresh`
+for an intentional regeneration.
+
 ## Scheduled ingestion
 
 The user-level systemd units in `deploy/systemd/` run ingestion 15 minutes
@@ -170,6 +190,7 @@ journalctl --user -u plaud-brain.service -n 100 --no-pager
 - Audio/transcripts are ignored by git.
 - Cloud STT and cloud summaries are explicitly configured in the untracked `.env`.
 - OpenRouter receives bounded audio chunks; DeepSeek receives transcript text.
+- QA sends the question and selected evidence text to the configured provider.
 - No PLAUD credential is copied into this repository.
 - Provider failures fall back to local STT, and successful cloud results are cached locally.
 

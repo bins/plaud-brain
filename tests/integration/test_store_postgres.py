@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(not DB, reason="TEST_DATABASE_URL not set")
 @pytest.fixture(scope="module", autouse=True)
 def schema():
     with psycopg.connect(DB, autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS embeddings, decisions, action_items, summaries, processing_runs, transcript_segments, transcripts, recordings CASCADE")
+        conn.execute("DROP TABLE IF EXISTS rag_answers, embeddings, decisions, action_items, summaries, processing_runs, transcript_segments, transcripts, recordings CASCADE")
         for migration in sorted(Path("infra/migrations").glob("*.sql")):
             sql = migration.read_text(encoding="utf-8")
             for statement in sql.split(";"):
@@ -211,3 +211,27 @@ def test_embedding_sources_and_cache_lifecycle():
     store.upsert_embedding(source, "test", "embed-v1", 2, "hash-2", [0.5, 0.5])
     assert store.list_embedding_metadata("test", "embed-v1")[0]["content_hash"] == "hash-2"
     assert store.delete_stale_embeddings("test", "embed-v1", set()) == 1
+
+
+def test_rag_answer_cache_round_trip():
+    store = PostgresStore(DB)
+    payload = {
+        "query": "What was decided?",
+        "answer": "It was approved. [S1]",
+        "insufficient_evidence": False,
+        "sources": [{"id": "S1"}],
+        "provider": "test",
+        "model": "qa-v1",
+    }
+    store.save_rag_answer(
+        cache_key="cache-key-1",
+        query="What was decided?",
+        filters={"top_k": 8},
+        provider="test",
+        model="qa-v1",
+        prompt_version="v1",
+        index_signature="2:now",
+        response=payload,
+    )
+    cached = store.get_rag_answer("cache-key-1")
+    assert cached["response"] == payload
