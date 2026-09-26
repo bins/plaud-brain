@@ -1,4 +1,4 @@
-# Architecture — M4
+# Architecture — M5
 
 M0/M1 deliberately implements only ingestion and local transcription.
 
@@ -49,6 +49,12 @@ the top evidence, and asks a provider-neutral chat-completions client for strict
 JSON. Source IDs are assigned by deterministic code and provider citations are
 validated against that allow-list before storage or display. Per-cache-key
 advisory locks prevent duplicate paid generation during concurrent requests.
+
+M5 adds a thin local HTTP presentation layer over the existing store, embedding,
+and RAG services. It uses only the Python standard library, serves static assets
+with a restrictive content-security policy, bounds request sizes and expensive
+concurrency, and binds to loopback by default. PostgreSQL remains authoritative;
+the browser stores no durable application state.
 
 ## Idempotency
 

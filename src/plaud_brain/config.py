@@ -71,6 +71,9 @@ class Settings:
     qa_timeout_seconds: int
     qa_top_k: int
     qa_min_score: float
+    web_host: str
+    web_port: int
+    web_api_token_env: str
     ffmpeg_bin: str
     ffprobe_bin: str
 
@@ -119,6 +122,9 @@ class Settings:
             qa_timeout_seconds=int(os.getenv("QA_TIMEOUT_SECONDS", "300")),
             qa_top_k=int(os.getenv("QA_TOP_K", "8")),
             qa_min_score=float(os.getenv("QA_MIN_SCORE", "0.45")),
+            web_host=os.getenv("WEB_HOST", "127.0.0.1"),
+            web_port=int(os.getenv("WEB_PORT", "8787")),
+            web_api_token_env=os.getenv("WEB_API_TOKEN_ENV", "PLAUD_BRAIN_WEB_TOKEN"),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         )

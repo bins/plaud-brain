@@ -1,4 +1,7 @@
-# Data model — M4
+# Data model — M5
+
+M5 adds no tables. The local web interface reads and updates the existing
+PostgreSQL model through the same store methods used by the CLI.
 
 ## recordings
 One row per PLAUD recording. `plaud_id` is the external idempotency key.

@@ -26,6 +26,7 @@ from plaud_brain.rag_service import RagService
 from plaud_brain.store import PostgresStore
 from plaud_brain.summarizer import render_summary_markdown
 from plaud_brain.summary_service import SummaryService
+from plaud_brain.web import WebApplication, serve as serve_web
 
 
 def build(settings: Settings) -> tuple[PostgresStore, Pipeline, WhisperCppTranscriber]:
@@ -73,6 +74,7 @@ def parser() -> argparse.ArgumentParser:
     once = sub.add_parser("run-once")
     once.add_argument("--limit", type=int, default=20)
     sub.add_parser("status")
+    sub.add_parser("serve")
     recordings = sub.add_parser("recordings")
     recordings.add_argument("--limit", type=int, default=20)
     transcript = sub.add_parser("transcript")
@@ -217,6 +219,20 @@ def main() -> None:
         print(json.dumps({"discovered": discovered, **result, **summary_result, **index_result}))
     elif args.command == "status":
         print(json.dumps(store.status_counts(), indent=2, default=str))
+    elif args.command == "serve":
+        if not 1 <= settings.web_port <= 65535:
+            raise SystemExit("WEB_PORT must be between 1 and 65535")
+        try:
+            web_app = WebApplication(
+                store,
+                embedding_service,
+                rag_service,
+                settings.web_host,
+                settings.web_api_token_env,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        serve_web(web_app, settings.web_host, settings.web_port)
     elif args.command == "recordings":
         print(json.dumps(store.list_recordings(args.limit), indent=2, default=str, ensure_ascii=False))
     elif args.command == "transcript":

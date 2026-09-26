@@ -160,6 +160,21 @@ class PostgresStore:
             cur.execute("SELECT status, count(*) AS count FROM recordings GROUP BY status ORDER BY status")
             return list(cur.fetchall())
 
+    def dashboard(self) -> dict:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM recordings)::int AS recordings,
+                    (SELECT count(*) FROM transcripts)::int AS transcripts,
+                    (SELECT count(*) FROM summaries)::int AS summaries,
+                    (SELECT count(*) FROM action_items WHERE status='OPEN')::int AS open_actions,
+                    (SELECT count(*) FROM decisions)::int AS decisions,
+                    (SELECT count(*) FROM embeddings)::int AS embeddings
+                """
+            )
+            return cur.fetchone()
+
     def list_recordings(self, limit: int = 20) -> list[dict]:
         with self.connect() as conn, conn.cursor() as cur:
             cur.execute(

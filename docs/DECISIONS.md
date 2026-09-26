@@ -88,3 +88,13 @@ Accepted. A cached answer is reusable only when the question, filters,
 provider/model settings, prompt version, and embedding row count/latest update
 are unchanged. Per-key PostgreSQL advisory locking prevents concurrent cache
 misses from creating duplicate paid requests.
+
+## ADR-017 — M5 is a loopback-first, dependency-free web layer
+Accepted. The interface reuses the Python services and PostgreSQL authority,
+binds to `127.0.0.1` by default, and is reached remotely through an SSH tunnel.
+A non-loopback bind requires a configured Bearer token. Static assets are
+served with a restrictive CSP, dynamic text is inserted with DOM text nodes,
+request bodies and filters are bounded, and only two semantic/QA requests run
+concurrently. Loopback mode rejects non-loopback Host headers to prevent DNS
+rebinding. No transcript, token, or recording identifier is written to the HTTP
+access log.

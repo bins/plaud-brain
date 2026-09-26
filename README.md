@@ -1,7 +1,8 @@
 # plaud-brain
 
-M4 implementation of a self-hosted PLAUD ingestion, configurable speech-to-text,
-structured-summary, hybrid semantic retrieval, and cited question-answering pipeline.
+M5 implementation of a self-hosted PLAUD ingestion, configurable speech-to-text,
+structured-summary, hybrid semantic retrieval, cited question-answering, and
+local web interface.
 
 ## Current flow
 
@@ -24,7 +25,8 @@ PLAUD device -> PLAUD Cloud -> PLAUD CLI -> audio download
                          PostgreSQL transcript store
 ```
 
-No PLAUD transcription minutes are consumed by this pipeline: it fetches the original audio and performs STT locally.
+No PLAUD transcription minutes are consumed by this pipeline: it fetches the
+original audio and uses the configured local or independent cloud STT backend.
 
 ## Target host
 
@@ -88,6 +90,7 @@ plaud-brain knowledge-search "launch" # search transcripts, summaries, decisions
 plaud-brain index                    # incrementally embed changed knowledge
 plaud-brain semantic-search "launch risks" # hybrid semantic + literal ranking
 plaud-brain ask "what did we decide?" # grounded answer with recording citations
+plaud-brain serve                     # local web interface on 127.0.0.1:8787
 plaud-brain show <plaud-id>           # combined summary and timestamped transcript
 plaud-brain decisions                 # list extracted decisions
 plaud-brain actions                   # list open action items
@@ -184,6 +187,28 @@ Inspect recent runs with:
 journalctl --user -u plaud-brain.service -n 100 --no-pager
 ```
 
+## Local web interface
+
+The M5 interface shows health counts, recordings and transcripts, open actions,
+semantic search, and cited Q&A. It binds only to `127.0.0.1:8787` by default.
+Reach it from another computer through an SSH tunnel:
+
+```bash
+ssh -L 8787:127.0.0.1:8787 bins@bmax-ai
+```
+
+Then open `http://127.0.0.1:8787`. Install the separate user service with:
+
+```bash
+cp deploy/systemd/plaud-brain-web.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now plaud-brain-web.service
+```
+
+Keep `WEB_HOST=127.0.0.1` for private use. Any non-loopback bind is rejected
+unless the environment variable named by `WEB_API_TOKEN_ENV` contains a
+Bearer token. The browser keeps that token in memory only.
+
 ## Security
 
 - PostgreSQL binds to localhost only.
@@ -191,6 +216,7 @@ journalctl --user -u plaud-brain.service -n 100 --no-pager
 - Cloud STT and cloud summaries are explicitly configured in the untracked `.env`.
 - OpenRouter receives bounded audio chunks; DeepSeek receives transcript text.
 - QA sends the question and selected evidence text to the configured provider.
+- The web service is loopback-only by default and writes no transcript content to its request log.
 - No PLAUD credential is copied into this repository.
 - Provider failures fall back to local STT, and successful cloud results are cached locally.
 

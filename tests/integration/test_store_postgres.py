@@ -235,3 +235,12 @@ def test_rag_answer_cache_round_trip():
     )
     cached = store.get_rag_answer("cache-key-1")
     assert cached["response"] == payload
+
+
+def test_dashboard_returns_aggregate_counts():
+    dashboard = PostgresStore(DB).dashboard()
+    assert dashboard["recordings"] >= 1
+    assert dashboard["transcripts"] >= 1
+    assert dashboard["summaries"] >= 1
+    assert dashboard["decisions"] >= 1
+    assert dashboard["embeddings"] >= 0

@@ -1,0 +1,22 @@
+[Unit]
+Description=PLAUD Brain local web interface
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bins/plaud-brain
+Environment=PATH=/home/bins/.local/bin:/home/bins/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/bins/plaud-brain/.venv/bin/plaud-brain serve
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bins/plaud-brain/data
+
+[Install]
+WantedBy=default.target
