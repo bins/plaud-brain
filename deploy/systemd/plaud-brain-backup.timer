@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the PLAUD Brain database backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=plaud-brain-backup.service
+
+[Install]
+WantedBy=timers.target

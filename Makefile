@@ -1,4 +1,4 @@
-.PHONY: dev db-up db-migrate db-down install test check sync run-once whisper-build whisper-model
+.PHONY: dev db-up db-migrate db-down install test check sync run-once backup whisper-build whisper-model
 
 install:
 	python3.12 -m venv .venv
@@ -31,6 +31,9 @@ sync:
 
 run-once:
 	.venv/bin/plaud-brain run-once
+
+backup:
+	./scripts/backup_postgres.sh
 
 whisper-build:
 	./scripts/build_whisper_vulkan.sh

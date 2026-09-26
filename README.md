@@ -187,6 +187,23 @@ Inspect recent runs with:
 journalctl --user -u plaud-brain.service -n 100 --no-pager
 ```
 
+## Database backups
+
+The backup timer creates a verified PostgreSQL custom-format dump every day and
+keeps 30 days by default:
+
+```bash
+chmod +x scripts/backup_postgres.sh
+cp deploy/systemd/plaud-brain-backup.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now plaud-brain-backup.timer
+systemctl --user start plaud-brain-backup.service
+```
+
+Backups are written with mode `600` under `data/backups/`, which contains
+private transcript data and must not be committed. See
+`docs/BACKUP_RUNBOOK.md` for the isolated restore-test procedure.
+
 ## Local web interface
 
 The M5 interface shows health counts, recordings and transcripts, open actions,
