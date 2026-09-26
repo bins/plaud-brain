@@ -28,6 +28,11 @@ def _env_bool(name: str, default: bool = False) -> bool:
     raise ValueError(f"{name} must be a boolean value")
 
 
+def _env_optional_int(name: str) -> int | None:
+    value = os.getenv(name, "").strip()
+    return int(value) if value else None
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -74,6 +79,11 @@ class Settings:
     web_host: str
     web_port: int
     web_api_token_env: str
+    diarization_provider: str
+    diarization_model: str
+    diarization_token_env: str
+    diarization_min_speakers: int | None
+    diarization_max_speakers: int | None
     ffmpeg_bin: str
     ffprobe_bin: str
 
@@ -125,6 +135,14 @@ class Settings:
             web_host=os.getenv("WEB_HOST", "127.0.0.1"),
             web_port=int(os.getenv("WEB_PORT", "8787")),
             web_api_token_env=os.getenv("WEB_API_TOKEN_ENV", "PLAUD_BRAIN_WEB_TOKEN"),
+            diarization_provider=os.getenv("DIARIZATION_PROVIDER", "disabled").strip().lower(),
+            diarization_model=os.getenv(
+                "DIARIZATION_MODEL",
+                "pyannote/speaker-diarization-community-1",
+            ),
+            diarization_token_env=os.getenv("DIARIZATION_TOKEN_ENV", "HF_TOKEN"),
+            diarization_min_speakers=_env_optional_int("DIARIZATION_MIN_SPEAKERS"),
+            diarization_max_speakers=_env_optional_int("DIARIZATION_MAX_SPEAKERS"),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         )

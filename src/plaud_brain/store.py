@@ -15,7 +15,7 @@ except ImportError:  # permits pure parser unit tests without runtime deps insta
     psycopg = None
     dict_row = None
 
-from plaud_brain.types import PlaudRecording, TranscriptResult
+from plaud_brain.types import DiarizationResult, PlaudRecording, TranscriptResult
 
 
 class PostgresStore:
@@ -222,6 +222,127 @@ class PostgresStore:
                 (plaud_id,),
             )
             return {**transcript, "segments": list(cur.fetchall())}
+
+    def get_diarization_input(self, plaud_id: str) -> dict | None:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.id AS recording_id, t.id AS transcript_id,
+                       r.audio_path, r.audio_sha256
+                FROM recordings r
+                JOIN transcripts t ON t.recording_id = r.id
+                WHERE r.plaud_id = %s
+                """,
+                (plaud_id,),
+            )
+            source = cur.fetchone()
+            if source is None:
+                return None
+            cur.execute(
+                """
+                SELECT seq, start_ms, end_ms
+                FROM transcript_segments
+                WHERE transcript_id = %s
+                ORDER BY seq
+                """,
+                (source["transcript_id"],),
+            )
+            return {**source, "segments": list(cur.fetchall())}
+
+    def get_diarization(self, plaud_id: str) -> dict | None:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT d.id, d.provider, d.model, d.audio_sha256, d.raw_json,
+                       d.created_at, d.updated_at
+                FROM diarizations d
+                JOIN transcripts t ON t.id = d.transcript_id
+                JOIN recordings r ON r.id = t.recording_id
+                WHERE r.plaud_id = %s
+                """,
+                (plaud_id,),
+            )
+            diarization = cur.fetchone()
+            if diarization is None:
+                return None
+            cur.execute(
+                """
+                SELECT seq, start_ms, end_ms, speaker, confidence
+                FROM speaker_turns
+                WHERE diarization_id = %s
+                ORDER BY seq
+                """,
+                (diarization["id"],),
+            )
+            return {**diarization, "turns": list(cur.fetchall())}
+
+    def save_diarization(
+        self,
+        transcript_id: uuid.UUID,
+        audio_sha256: str,
+        result: DiarizationResult,
+        assignments: dict[int, str],
+    ) -> uuid.UUID:
+        diarization_id = uuid.uuid4()
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO diarizations(
+                    id, transcript_id, provider, model, audio_sha256, raw_json
+                ) VALUES (%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT(transcript_id) DO UPDATE SET
+                    provider=EXCLUDED.provider,
+                    model=EXCLUDED.model,
+                    audio_sha256=EXCLUDED.audio_sha256,
+                    raw_json=EXCLUDED.raw_json,
+                    updated_at=now()
+                RETURNING id
+                """,
+                (
+                    diarization_id,
+                    transcript_id,
+                    result.provider,
+                    result.model,
+                    audio_sha256,
+                    json.dumps(result.raw_json),
+                ),
+            )
+            diarization_id = cur.fetchone()["id"]
+            cur.execute(
+                "DELETE FROM speaker_turns WHERE diarization_id=%s",
+                (diarization_id,),
+            )
+            for seq, turn in enumerate(result.turns):
+                cur.execute(
+                    """
+                    INSERT INTO speaker_turns(
+                        diarization_id, seq, start_ms, end_ms, speaker, confidence
+                    ) VALUES (%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        diarization_id,
+                        seq,
+                        turn.start_ms,
+                        turn.end_ms,
+                        turn.speaker.strip(),
+                        turn.confidence,
+                    ),
+                )
+            cur.execute(
+                "UPDATE transcript_segments SET speaker=NULL WHERE transcript_id=%s",
+                (transcript_id,),
+            )
+            for seq, speaker in assignments.items():
+                cur.execute(
+                    """
+                    UPDATE transcript_segments SET speaker=%s
+                    WHERE transcript_id=%s AND seq=%s
+                    """,
+                    (speaker, transcript_id, seq),
+                )
+                if cur.rowcount != 1:
+                    raise ValueError(f"unknown transcript segment sequence: {seq}")
+        return diarization_id
 
     def pending_summaries(self, limit: int = 20) -> list[dict]:
         with self.connect() as conn, conn.cursor() as cur:

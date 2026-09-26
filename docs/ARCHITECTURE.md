@@ -1,4 +1,4 @@
-# Architecture — M5
+# Architecture — M6a
 
 M0/M1 deliberately implements only ingestion and local transcription.
 
@@ -56,12 +56,21 @@ with a restrictive content-security policy, bounds request sizes and expensive
 concurrency, and binds to loopback by default. PostgreSQL remains authoritative;
 the browser stores no durable application state.
 
+M6a begins with a provider-neutral diarization projection. Speaker turns are
+stored separately from the immutable STT result, then aligned to transcript
+segments by deterministic maximum temporal overlap. The projection is cached
+against the audio checksum, provider, and model, so adding or retrying speaker
+labels never requires another transcription. A concrete local or cloud adapter
+is enabled only after its privacy and performance benchmark passes.
+
 ## Idempotency
 
 - `recordings.plaud_id` is unique.
 - `transcripts.recording_id` is unique.
 - `transcript_segments(transcript_id, seq)` is unique.
 - `embeddings(source_type, source_id, provider, model)` is unique.
+- `diarizations.transcript_id` is unique.
+- `speaker_turns(diarization_id, seq)` is unique.
 - Downloads are written to a temporary file, checksummed, then atomically renamed.
 - Existing valid audio is reused.
 - A recording already in `TRANSCRIBED` is skipped unless a future explicit reprocess command is added.

@@ -8,7 +8,13 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 
 from plaud_brain.store import PostgresStore
-from plaud_brain.types import PlaudRecording, TranscriptResult, TranscriptSegment
+from plaud_brain.types import (
+    DiarizationResult,
+    DiarizationTurn,
+    PlaudRecording,
+    TranscriptResult,
+    TranscriptSegment,
+)
 
 
 DB = os.getenv("TEST_DATABASE_URL")
@@ -18,7 +24,7 @@ pytestmark = pytest.mark.skipif(not DB, reason="TEST_DATABASE_URL not set")
 @pytest.fixture(scope="module", autouse=True)
 def schema():
     with psycopg.connect(DB, autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS rag_answers, embeddings, decisions, action_items, summaries, processing_runs, transcript_segments, transcripts, recordings CASCADE")
+        conn.execute("DROP TABLE IF EXISTS speaker_turns, diarizations, rag_answers, embeddings, decisions, action_items, summaries, processing_runs, transcript_segments, transcripts, recordings CASCADE")
         for migration in sorted(Path("infra/migrations").glob("*.sql")):
             sql = migration.read_text(encoding="utf-8")
             for statement in sql.split(";"):
@@ -143,6 +149,80 @@ def test_summary_upsert_and_pending_selection():
     assert first == second
     assert store.get_summary("integration-summary")["content"]["summary"] == "Updated"
     assert "integration-summary" not in {item["plaud_id"] for item in store.pending_summaries(20)}
+
+
+def test_diarization_replaces_turns_and_updates_segment_speakers():
+    store = PostgresStore(DB)
+    row = store.upsert_recording(
+        PlaudRecording(plaud_id="integration-diarization", name="Speakers")
+    )
+    transcript_id = store.save_transcript(
+        row["id"],
+        TranscriptResult(
+            engine="whisper.cpp",
+            model="test.bin",
+            language="fr",
+            duration_ms=2000,
+            raw_json={"result": {"language": "fr"}},
+            segments=[
+                TranscriptSegment(0, 0, 1000, "Bonjour"),
+                TranscriptSegment(1, 1000, 2000, "Salut"),
+            ],
+            normalized_audio=Path("/tmp/test.wav"),
+        ),
+    )
+    with store.connect() as conn:
+        conn.execute(
+            """
+            UPDATE recordings
+            SET audio_path='/tmp/test.wav', audio_sha256='audio-hash'
+            WHERE id=%s
+            """,
+            (row["id"],),
+        )
+
+    first = DiarizationResult(
+        provider="test",
+        model="speaker-v1",
+        raw_json={"revision": 1},
+        turns=[
+            DiarizationTurn(0, 1000, "SPEAKER_00", 0.9),
+            DiarizationTurn(1000, 2000, "SPEAKER_01", 0.8),
+        ],
+    )
+    first_id = store.save_diarization(
+        transcript_id,
+        "audio-hash",
+        first,
+        {0: "SPEAKER_00", 1: "SPEAKER_01"},
+    )
+    loaded = store.get_diarization("integration-diarization")
+    assert loaded["id"] == first_id
+    assert [turn["speaker"] for turn in loaded["turns"]] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+    assert [segment["speaker"] for segment in store.get_transcript("integration-diarization")["segments"]] == [
+        "SPEAKER_00",
+        "SPEAKER_01",
+    ]
+
+    second = DiarizationResult(
+        provider="test",
+        model="speaker-v2",
+        raw_json={"revision": 2},
+        turns=[DiarizationTurn(0, 2000, "SPEAKER_00")],
+    )
+    second_id = store.save_diarization(
+        transcript_id,
+        "audio-hash",
+        second,
+        {0: "SPEAKER_00", 1: "SPEAKER_00"},
+    )
+    assert second_id == first_id
+    refreshed = store.get_diarization("integration-diarization")
+    assert refreshed["model"] == "speaker-v2"
+    assert len(refreshed["turns"]) == 1
 
 
 def test_decision_action_projection_search_and_status_survive_refresh():

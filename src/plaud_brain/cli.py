@@ -11,10 +11,15 @@ from plaud_brain.adapters.cloud_stt import FallbackTranscriber, OpenAICompatible
 from plaud_brain.adapters.embeddings import EmbeddingProviderError, OpenAICompatibleEmbeddingClient
 from plaud_brain.adapters.openai_compatible import CloudProviderError, OpenAICompatibleClient
 from plaud_brain.adapters.plaud_cli import PlaudCliAdapter
+from plaud_brain.adapters.pyannote_diarization import (
+    PyannoteDiarizationError,
+    PyannoteDiarizer,
+)
 from plaud_brain.adapters.whisper_cpp import WhisperCppTranscriber
 from plaud_brain.benchmark import run_benchmark
 from plaud_brain.config import Settings
 from plaud_brain.embedding_service import EmbeddingService
+from plaud_brain.diarization_service import DiarizationService
 from plaud_brain.pipeline import Pipeline
 from plaud_brain.presentation import (
     render_knowledge_markdown,
@@ -75,6 +80,9 @@ def parser() -> argparse.ArgumentParser:
     once.add_argument("--limit", type=int, default=20)
     sub.add_parser("status")
     sub.add_parser("serve")
+    diarize = sub.add_parser("diarize")
+    diarize.add_argument("plaud_id")
+    diarize.add_argument("--refresh", action="store_true")
     recordings = sub.add_parser("recordings")
     recordings.add_argument("--limit", type=int, default=20)
     transcript = sub.add_parser("transcript")
@@ -233,6 +241,33 @@ def main() -> None:
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         serve_web(web_app, settings.web_host, settings.web_port)
+    elif args.command == "diarize":
+        if settings.diarization_provider != "pyannote":
+            raise SystemExit(
+                "DIARIZATION_PROVIDER must be pyannote to run speaker diarization"
+            )
+        diarizer = PyannoteDiarizer(
+            model=settings.diarization_model,
+            token_env=settings.diarization_token_env,
+            min_speakers=settings.diarization_min_speakers,
+            max_speakers=settings.diarization_max_speakers,
+        )
+        service = DiarizationService(store, diarizer, settings.data_dir)
+        try:
+            result, cached = service.diarize_one(
+                args.plaud_id,
+                refresh=args.refresh,
+            )
+        except (PyannoteDiarizationError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        print(
+            json.dumps(
+                {**result, "cached": cached},
+                indent=2,
+                default=str,
+                ensure_ascii=False,
+            )
+        )
     elif args.command == "recordings":
         print(json.dumps(store.list_recordings(args.limit), indent=2, default=str, ensure_ascii=False))
     elif args.command == "transcript":

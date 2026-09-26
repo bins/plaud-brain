@@ -36,3 +36,28 @@ class TranscriptResult:
 
 class Transcriber(Protocol):
     def transcribe(self, audio_path: Path, work_dir: Path) -> TranscriptResult: ...
+
+
+@dataclass(frozen=True)
+class DiarizationTurn:
+    start_ms: int
+    end_ms: int
+    speaker: str
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class DiarizationResult:
+    provider: str
+    model: str
+    raw_json: dict[str, Any]
+    turns: list[DiarizationTurn]
+
+
+class Diarizer(Protocol):
+    provider: str
+    model: str
+
+    def diarize(
+        self, audio_path: Path, work_dir: Path
+    ) -> DiarizationResult: ...

@@ -91,6 +91,7 @@ plaud-brain index                    # incrementally embed changed knowledge
 plaud-brain semantic-search "launch risks" # hybrid semantic + literal ranking
 plaud-brain ask "what did we decide?" # grounded answer with recording citations
 plaud-brain serve                     # local web interface on 127.0.0.1:8787
+plaud-brain diarize <plaud-id>         # add cached anonymous speaker labels
 plaud-brain show <plaud-id>           # combined summary and timestamped transcript
 plaud-brain decisions                 # list extracted decisions
 plaud-brain actions                   # list open action items
@@ -165,6 +166,23 @@ Answers are cached against the question, filters, provider configuration, and
 current embedding-index signature. Repeating a question does not make another
 embedding or QA request while the knowledge index is unchanged. Use `--refresh`
 for an intentional regeneration.
+
+## Speaker diarization
+
+M6a stores speaker turns separately from transcription and aligns anonymous
+speaker labels onto the existing timestamped segments. It never reruns or
+rewrites valid STT. The first adapter targets local pyannote Community-1 and is
+disabled until its optional dependency is installed and the model conditions
+are accepted:
+
+```bash
+.venv/bin/pip install -e '.[diarization]'
+# set DIARIZATION_PROVIDER=pyannote and HF_TOKEN only in .env
+plaud-brain diarize <plaud-id>
+```
+
+Matching audio checksum, provider, and model reuse the stored result. See
+`docs/M6_RUNBOOK.md` before enabling a model or uploading audio to any cloud.
 
 ## Scheduled ingestion
 

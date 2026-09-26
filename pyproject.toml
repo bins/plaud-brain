@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9"]
+diarization = ["pyannote.audio>=4.0.7,<5"]
 
 [project.scripts]
 plaud-brain = "plaud_brain.cli:main"

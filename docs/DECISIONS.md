@@ -98,3 +98,11 @@ request bodies and filters are bounded, and only two semantic/QA requests run
 concurrently. Loopback mode rejects non-loopback Host headers to prevent DNS
 rebinding. No transcript, token, or recording identifier is written to the HTTP
 access log.
+
+## ADR-018 — M6 stores diarization separately from transcription
+Accepted. Speaker detection must not rewrite or rerun a valid transcript.
+Provider output is stored as time-ranged anonymous speaker turns and projected
+onto existing transcript segments by greatest temporal overlap. Results are
+cached against the source audio checksum, provider, and model. The interface is
+provider-neutral because local pyannote and cloud diarized transcription have
+different privacy, cost, and hardware tradeoffs.
