@@ -11,9 +11,7 @@ The first M6a slice provides:
 - processing-run success/failure audit;
 - no repeated STT and no change to original transcript language.
 
-It intentionally does not install or enable a model yet.
-
-The adapter and CLI are ready but disabled by default:
+The adapter and CLI remain disabled by default:
 
 ```dotenv
 DIARIZATION_PROVIDER=disabled
@@ -24,6 +22,8 @@ DIARIZATION_TOKEN_ENV=HF_TOKEN
 After accepting the model conditions and placing `HF_TOKEN` only in `.env`:
 
 ```bash
+.venv/bin/pip install torch==2.8.0 torchaudio==2.8.0 \
+  --index-url https://download.pytorch.org/whl/cpu
 .venv/bin/pip install -e '.[diarization]'
 # change DIARIZATION_PROVIDER=pyannote
 .venv/bin/plaud-brain diarize <plaud-id>
@@ -39,11 +39,14 @@ Preferred first benchmark: local
 
 - It runs locally and exposes exclusive diarization designed to reconcile with
   transcription timestamps.
-- The model accepts mono 16 kHz audio, matching the existing normalized format.
+- The model accepts mono 16 kHz audio. The adapter preloads PCM WAV and uses
+  the configured ffmpeg binary to normalize compressed source audio without
+  rerunning STT.
 - Access requires accepting the Hugging Face model conditions and providing a
   token; never commit the token.
-- bmax-ai currently has no torch or pyannote installation and no Hugging Face
-  token, so installation is deferred until explicit credential setup.
+- bmax-ai uses CPU-only PyTorch 2.8.0 and pyannote.audio 4.0.7. Install the CPU
+  wheels before the optional extra so pip does not download unused NVIDIA CUDA
+  packages.
 
 Cloud alternative: OpenAI `gpt-4o-transcribe-diarize`.
 
@@ -70,6 +73,18 @@ Use copied excerpts, never modify the authoritative source audio:
 Record wall time, peak memory, detected speaker count, manual speaker-confusion
 notes, and whether transcript-segment alignment is usable. Do not commit audio
 or speaker content.
+
+Validated on bmax-ai on 2026-09-26:
+
+- model warm load: 3.43 seconds and about 551 MiB RSS;
+- 60 seconds: 28.09 seconds (0.468 realtime), 2.21 GiB peak RSS;
+- 300 seconds: 161.71 seconds (0.539 realtime), 2.31 GiB peak RSS;
+- full database path: compressed-audio normalization, 260 stored turns and 368
+  labeled transcript segments;
+- immediate repeat: cache hit in 0.021 seconds with no repeated model run.
+
+Speaker counts are anonymous and must still be judged manually on a known
+multi-speaker sample before treating them as identity labels.
 
 ## Apply migration
 

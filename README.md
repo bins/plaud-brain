@@ -176,10 +176,17 @@ disabled until its optional dependency is installed and the model conditions
 are accepted:
 
 ```bash
+.venv/bin/pip install torch==2.8.0 torchaudio==2.8.0 \
+  --index-url https://download.pytorch.org/whl/cpu
 .venv/bin/pip install -e '.[diarization]'
 # set DIARIZATION_PROVIDER=pyannote and HF_TOKEN only in .env
 plaud-brain diarize <plaud-id>
 ```
+
+The adapter preloads PCM WAV audio and normalizes compressed source audio with
+the configured ffmpeg binary, so TorchCodec's optional system-FFmpeg decoder is
+not required. Install the CPU PyTorch wheels first on non-NVIDIA hosts to avoid
+pulling unused CUDA packages.
 
 Matching audio checksum, provider, and model reuse the stored result. See
 `docs/M6_RUNBOOK.md` before enabling a model or uploading audio to any cloud.

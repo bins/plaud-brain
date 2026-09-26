@@ -251,6 +251,7 @@ def main() -> None:
             token_env=settings.diarization_token_env,
             min_speakers=settings.diarization_min_speakers,
             max_speakers=settings.diarization_max_speakers,
+            ffmpeg_bin=settings.ffmpeg_bin,
         )
         service = DiarizationService(store, diarizer, settings.data_dir)
         try:
