@@ -138,8 +138,12 @@ DIARIZATION_MAX_ATTEMPTS=3
 - Backfill: `plaud-brain diarize-pending --limit N`, ideally while the timer is
   stopped or at night. The per-recording advisory lock makes an overlapping
   timer run wait and then reuse the stored result.
-- Summaries generated before diarization keep no speaker labels; refresh them
-  deliberately with `plaud-brain summarize <plaud-id> --refresh`.
+- Summaries generated before diarization have no speaker labels. Set
+  `SUMMARY_REFRESH_AFTER_DIARIZATION=true` or run
+  `plaud-brain summarize-stale` to regenerate them (paid, at most
+  `SUMMARY_REFRESH_LIMIT` per run). Recordings with `done` or `dismissed`
+  action items are skipped; refresh those with
+  `plaud-brain summarize <plaud-id> --refresh` and re-check the actions.
 - Work files under `data/work/<plaud-id>/diarization/` are deleted after every
   run, successful or not.
 

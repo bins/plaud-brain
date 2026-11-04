@@ -64,6 +64,8 @@ class Settings:
     summary_api_key_env: str
     summary_timeout_seconds: int
     summary_auto: bool
+    summary_refresh_after_diarization: bool
+    summary_refresh_limit: int
     embedding_provider: str
     embedding_base_url: str
     embedding_model: str
@@ -127,6 +129,8 @@ class Settings:
             summary_api_key_env=os.getenv("SUMMARY_API_KEY_ENV", "DEEPSEEK_API_KEY"),
             summary_timeout_seconds=int(os.getenv("SUMMARY_TIMEOUT_SECONDS", "300")),
             summary_auto=_env_bool("SUMMARY_AUTO"),
+            summary_refresh_after_diarization=_env_bool("SUMMARY_REFRESH_AFTER_DIARIZATION"),
+            summary_refresh_limit=int(os.getenv("SUMMARY_REFRESH_LIMIT", "5")),
             embedding_provider=os.getenv("EMBEDDING_PROVIDER", "openrouter").strip().lower(),
             embedding_base_url=os.getenv("EMBEDDING_BASE_URL", "https://openrouter.ai/api/v1"),
             embedding_model=os.getenv("EMBEDDING_MODEL", "qwen/qwen3-embedding-8b"),

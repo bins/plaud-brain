@@ -432,3 +432,92 @@ def test_pkb_export_queries_list_transcribed_recordings_and_their_actions():
     ]
     assert actions[1]["due"] == "Mon"
     assert store.list_recording_actions("export-a") == []
+
+
+def _summary_content(*tasks):
+    return {
+        "summary": "Summary",
+        "topics": [],
+        "decisions": [],
+        "action_items": [{"task": t, "owner": None, "due": None, "timestamp_ms": None} for t in tasks],
+    }
+
+
+def _diarize(store, transcript_id):
+    store.save_diarization(
+        transcript_id,
+        "audio-hash",
+        DiarizationResult("test", "v1", {}, [DiarizationTurn(0, 1000, "SPEAKER_00")]),
+        {0: "SPEAKER_00"},
+    )
+
+
+def test_pending_speaker_summary_refreshes_selects_only_safe_stale_summaries():
+    store = PostgresStore(DB)
+    with store.connect() as conn:
+        conn.execute("DELETE FROM recordings")
+
+    # Summary before diarization, all actions open: refresh.
+    _, stale = _transcribed_recording(store, "refresh-stale", "2026-01-01T00:00:00Z")
+    store.save_summary(stale, "test", "m", "v1", _summary_content("Open task"))
+    _diarize(store, stale)
+
+    # Summary after diarization: nothing to do.
+    _, fresh = _transcribed_recording(store, "refresh-fresh", "2026-01-02T00:00:00Z")
+    _diarize(store, fresh)
+    store.save_summary(fresh, "test", "m", "v1", _summary_content())
+
+    # Reviewed action: never refreshed automatically.
+    _, reviewed = _transcribed_recording(store, "refresh-reviewed", "2026-01-03T00:00:00Z")
+    store.save_summary(reviewed, "test", "m", "v1", _summary_content("Done task"))
+    action_id = store.list_recording_actions("refresh-reviewed")
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE action_items SET status='DONE' WHERE summary_id=(SELECT id FROM summaries WHERE transcript_id=%s)",
+            (reviewed,),
+        )
+    _diarize(store, reviewed)
+
+    # No diarization at all: nothing to do.
+    _, plain = _transcribed_recording(store, "refresh-plain", "2026-01-04T00:00:00Z")
+    store.save_summary(plain, "test", "m", "v1", _summary_content())
+
+    # Failed refreshes since diarization reach the cap.
+    failing_id, failing = _transcribed_recording(store, "refresh-failing", "2026-01-05T00:00:00Z")
+    store.save_summary(failing, "test", "m", "v1", _summary_content())
+    _diarize(store, failing)
+    for _ in range(2):
+        store.finish_run(store.start_run(failing_id, "SUMMARY"), False, "E", "failed")
+
+    pending = [row["plaud_id"] for row in store.pending_speaker_summary_refreshes(max_attempts=3, limit=10)]
+    assert sorted(pending) == ["refresh-failing", "refresh-stale"]
+    capped = [row["plaud_id"] for row in store.pending_speaker_summary_refreshes(max_attempts=2, limit=10)]
+    assert capped == ["refresh-stale"]
+    assert action_id  # the reviewed recording had an action to protect
+
+
+def test_guarded_summary_save_keeps_reviewed_actions():
+    from plaud_brain.store import ReviewedActionsError
+
+    store = PostgresStore(DB)
+    _, transcript_id = _transcribed_recording(store, "guard-reviewed", "2026-02-01T00:00:00Z")
+    store.save_summary(transcript_id, "test", "m", "v1", _summary_content("Ship it"))
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE action_items SET status='DISMISSED' WHERE summary_id=(SELECT id FROM summaries WHERE transcript_id=%s)",
+            (transcript_id,),
+        )
+
+    with pytest.raises(ReviewedActionsError):
+        store.save_summary(
+            transcript_id, "test", "m", "v2", _summary_content("Ship it — SPEAKER_00"),
+            require_unreviewed_actions=True,
+        )
+    assert store.get_summary("guard-reviewed")["prompt_version"] == "v1"
+    assert [(a["task"], a["status"]) for a in store.list_recording_actions("guard-reviewed")] == [
+        ("Ship it", "DISMISSED")
+    ]
+
+    # An explicit refresh is still allowed.
+    store.save_summary(transcript_id, "test", "m", "v2", _summary_content("New task"))
+    assert store.get_summary("guard-reviewed")["prompt_version"] == "v2"

@@ -18,6 +18,10 @@ except ImportError:  # permits pure parser unit tests without runtime deps insta
 from plaud_brain.types import DiarizationResult, PlaudRecording, TranscriptResult
 
 
+class ReviewedActionsError(ValueError):
+    """A summary refresh would reset action items the user already reviewed."""
+
+
 class PostgresStore:
     def __init__(self, database_url: str):
         if psycopg is None:
@@ -390,6 +394,45 @@ class PostgresStore:
             )
             return list(cur.fetchall())
 
+    def pending_speaker_summary_refreshes(self, max_attempts: int, limit: int) -> list[dict]:
+        """Summaries generated before the recording's current speaker labels.
+
+        Skips recordings whose action items were already reviewed (DONE or
+        DISMISSED), because a refresh can change an item's owner and so its
+        identity, resetting the reviewed status. Unsuccessful SUMMARY runs since
+        the diarization (FAILED or stale RUNNING) count toward ``max_attempts``.
+        """
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.plaud_id
+                FROM recordings r
+                JOIN transcripts t ON t.recording_id = r.id
+                JOIN summaries s ON s.transcript_id = t.id
+                JOIN diarizations d ON d.transcript_id = t.id
+                WHERE s.updated_at < d.updated_at
+                  AND EXISTS (
+                      SELECT 1 FROM transcript_segments ts
+                      WHERE ts.transcript_id = t.id AND ts.speaker IS NOT NULL
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM action_items a
+                      WHERE a.summary_id = s.id AND a.status <> 'OPEN'
+                  )
+                  AND (
+                      SELECT count(*) FROM processing_runs p
+                      WHERE p.recording_id = r.id
+                        AND p.stage = 'SUMMARY'
+                        AND p.status IN ('FAILED', 'RUNNING')
+                        AND p.started_at >= d.updated_at
+                  ) < %s
+                ORDER BY d.updated_at DESC, r.plaud_id
+                LIMIT %s
+                """,
+                (max_attempts, limit),
+            )
+            return list(cur.fetchall())
+
     def pending_summaries(self, limit: int = 20) -> list[dict]:
         with self.connect() as conn, conn.cursor() as cur:
             cur.execute(
@@ -413,9 +456,32 @@ class PostgresStore:
         model: str,
         prompt_version: str,
         content: dict,
+        require_unreviewed_actions: bool = False,
     ) -> uuid.UUID:
+        """Store the current summary and its decision/action projections.
+
+        With ``require_unreviewed_actions``, the save is refused when any action
+        item of the existing summary is DONE or DISMISSED. The rows are locked
+        first, so a status change committed while the summary was being
+        generated is seen here rather than silently reset to OPEN.
+        """
         summary_id = uuid.uuid4()
         with self.connect() as conn, conn.cursor() as cur:
+            if require_unreviewed_actions:
+                cur.execute(
+                    """
+                    SELECT a.status
+                    FROM action_items a
+                    JOIN summaries s ON s.id = a.summary_id
+                    WHERE s.transcript_id = %s
+                    FOR UPDATE OF a
+                    """,
+                    (transcript_id,),
+                )
+                if any(row["status"] != "OPEN" for row in cur.fetchall()):
+                    raise ReviewedActionsError(
+                        "summary has reviewed action items; refresh it explicitly"
+                    )
             cur.execute(
                 """
                 INSERT INTO summaries(id, transcript_id, provider, model, prompt_version, content)
