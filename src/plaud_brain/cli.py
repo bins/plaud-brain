@@ -85,6 +85,16 @@ def build_diarization_service(settings: Settings, store: PostgresStore) -> Diari
     return DiarizationService(store, diarizer, settings.data_dir)
 
 
+# Unsuccessful refreshes since the latest diarization before a recording is skipped.
+SUMMARY_REFRESH_MAX_ATTEMPTS = 3
+
+
+def _positive(value: int, name: str) -> int:
+    if value < 1:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
 def build_pkb_exporter(settings: Settings, store: PostgresStore) -> PkbExporter:
     if settings.pkb_export_dir is None:
         raise ValueError("PKB_EXPORT_DIR must point to the export folder inside the PKB knowledge root")
@@ -113,6 +123,8 @@ def parser() -> argparse.ArgumentParser:
     diarize_pending = sub.add_parser("diarize-pending")
     diarize_pending.add_argument("--limit", type=int)
     sub.add_parser("export-pkb")
+    refresh_stale = sub.add_parser("summarize-stale")
+    refresh_stale.add_argument("--limit", type=int)
     recordings = sub.add_parser("recordings")
     recordings.add_argument("--limit", type=int, default=20)
     transcript = sub.add_parser("transcript")
@@ -255,6 +267,18 @@ def main() -> None:
             if settings.summary_auto
             else {"summarized": 0, "summary_failed": 0}
         )
+        refresh_result = {"summary_refreshed": 0, "summary_refresh_skipped": 0, "summary_refresh_failed": 0}
+        if settings.summary_refresh_after_diarization:
+            try:
+                refresh_result.update(
+                    summary_service.refresh_after_diarization(
+                        _positive(settings.summary_refresh_limit, "SUMMARY_REFRESH_LIMIT"),
+                        SUMMARY_REFRESH_MAX_ATTEMPTS,
+                    )
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("summary refresh after diarization failed")
+                refresh_result["summary_refresh_failed"] += 1
         export_result = {"exported": 0, "export_unchanged": 0, "export_deleted": 0, "export_failed": 0}
         if settings.pkb_export_auto:
             try:
@@ -282,6 +306,7 @@ def main() -> None:
                     **result,
                     **diarization_result,
                     **summary_result,
+                    **refresh_result,
                     **export_result,
                     **index_result,
                 }
@@ -332,6 +357,13 @@ def main() -> None:
         if limit < 1:
             raise SystemExit("--limit must be positive")
         print(json.dumps(service.diarize_pending(limit, settings.diarization_max_attempts)))
+    elif args.command == "summarize-stale":
+        limit = settings.summary_refresh_limit if args.limit is None else args.limit
+        try:
+            limit = _positive(limit, "--limit")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(summary_service.refresh_after_diarization(limit, SUMMARY_REFRESH_MAX_ATTEMPTS)))
     elif args.command == "export-pkb":
         try:
             exporter = build_pkb_exporter(settings, store)

@@ -152,7 +152,7 @@ skipped after `DIARIZATION_MAX_ATTEMPTS` unsuccessful runs, counting stale
 `RUNNING` rows so an OOM-killed process cannot loop. A PostgreSQL advisory lock
 per recording serializes manual and scheduled runs, and the normalized audio
 copy is always removed. Diarization failures never block ingestion, summaries,
-or indexing. Existing summaries are not regenerated automatically.
+or indexing. Existing summaries are not regenerated here; see ADR-022.
 
 Acceptance evidence: ADR-019 accepted; the long-recording row of the M6a table
 shows that `DIARIZATION_AUTO_LIMIT` recordings fit inside `TimeoutStartSec=3h`
@@ -167,3 +167,15 @@ its rendering changes. PostgreSQL remains authoritative; the files are a
 regenerable projection. Exports never grant cloud AI access, write no
 timestamps of their own, and delete only files carrying the exporter's
 ownership marker after a complete, non-empty pass.
+
+## ADR-022 — Refresh pre-diarization summaries only when no action was reviewed
+Accepted. A summary older than its recording's diarization was generated
+without speaker labels. `summarize-stale`, and opt-in
+`SUMMARY_REFRESH_AFTER_DIARIZATION` in `run-once`, regenerate such summaries,
+bounded by `SUMMARY_REFRESH_LIMIT` and by three unsuccessful attempts since the
+latest diarization. Action identity includes the owner, and speaker labels make
+owners likely to change, so a refresh could reset `DONE` or `DISMISSED` items
+to `OPEN`. Automatic refresh therefore skips recordings with any reviewed
+action, and the save re-checks this under row locks in the same transaction,
+so a status change made during generation is never overwritten. Explicit
+`summarize --refresh` keeps its existing behaviour.

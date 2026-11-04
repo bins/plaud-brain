@@ -137,6 +137,16 @@ Decisions and action items are projected into relational tables when a summary
 is stored. Action status can be `open`, `done`, or `dismissed`; matching items
 keep their ID and status across an explicit summary refresh.
 
+Summaries made before a recording was diarized have no speaker labels.
+`plaud-brain summarize-stale --limit 5` regenerates them, and
+`SUMMARY_REFRESH_AFTER_DIARIZATION=true` does the same during `run-once`
+(at most `SUMMARY_REFRESH_LIMIT` per run, default 5). Each refresh is a paid
+provider call. A recording is skipped when any of its action items is already
+`done` or `dismissed`: speaker labels can change an item's owner, and so its
+identity, which would reset that status. Refresh such a recording yourself with
+`summarize <plaud-id> --refresh` and re-check its actions. A recording is also
+skipped after 3 unsuccessful refreshes since its latest diarization.
+
 ## Semantic retrieval
 
 M3 uses an OpenAI-compatible embeddings endpoint. The default is OpenRouter's

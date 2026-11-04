@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from plaud_brain.store import ReviewedActionsError
 from plaud_brain.summarizer import summarize_transcript
 
 log = logging.getLogger(__name__)
@@ -16,7 +17,12 @@ class SummaryService:
         self.provider = provider
         self.model = model
 
-    def summarize_one(self, plaud_id: str, refresh: bool = False) -> tuple[dict, bool]:
+    def summarize_one(
+        self,
+        plaud_id: str,
+        refresh: bool = False,
+        require_unreviewed_actions: bool = False,
+    ) -> tuple[dict, bool]:
         transcript = self.store.get_transcript(plaud_id)
         if transcript is None:
             raise ValueError(f"Transcript not found: {plaud_id}")
@@ -34,6 +40,7 @@ class SummaryService:
                 model=self.model,
                 prompt_version=PROMPT_VERSION,
                 content=summary,
+                require_unreviewed_actions=require_unreviewed_actions,
             )
             self.store.finish_run(run, True)
             return summary, True
@@ -51,4 +58,26 @@ class SummaryService:
             except Exception:
                 log.exception("summary failed for %s", item["plaud_id"])
                 counts["summary_failed"] += 1
+        return counts
+
+    def refresh_after_diarization(self, limit: int, max_attempts: int) -> dict[str, int]:
+        """Regenerate summaries made before speaker labels were added.
+
+        Each refresh is a paid provider call. Recordings with reviewed action
+        items are never refreshed automatically, so their status is not reset.
+        """
+        counts = {"summary_refreshed": 0, "summary_refresh_skipped": 0, "summary_refresh_failed": 0}
+        for item in self.store.pending_speaker_summary_refreshes(max_attempts, limit):
+            plaud_id = item["plaud_id"]
+            try:
+                self.summarize_one(plaud_id, refresh=True, require_unreviewed_actions=True)
+            except ReviewedActionsError:
+                log.info("summary refresh skipped for %s: action items were reviewed", plaud_id)
+                counts["summary_refresh_skipped"] += 1
+                continue
+            except Exception:
+                log.exception("summary refresh failed for %s", plaud_id)
+                counts["summary_refresh_failed"] += 1
+                continue
+            counts["summary_refreshed"] += 1
         return counts
