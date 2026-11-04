@@ -111,6 +111,38 @@ Speaker-count check: judge rows 1–4 by listening to the copied excerpt and
 comparing it with `plaud-brain show <plaud-id>`; note systematic confusions
 (e.g. two similar voices merged) without quoting content.
 
+## Automatic diarization and backfill
+
+Enable only after ADR-019 is accepted and ADR-020's evidence is recorded.
+
+```dotenv
+DIARIZATION_PROVIDER=pyannote
+DIARIZATION_AUTO=true
+DIARIZATION_AUTO_LIMIT=2
+DIARIZATION_MAX_ATTEMPTS=3
+```
+
+- `run-once` order: discover → download/STT → diarization → summaries →
+  embedding index. Output adds `diarized`, `diarization_cached`, and
+  `diarization_failed`.
+- Selection: transcribed recordings with audio, at least one segment, and no
+  diarization row; newest first. A recording that already has a diarization from
+  another provider or model is not picked up; rerun it with
+  `diarize <plaud-id> --refresh`.
+- Attempt cap: `FAILED` and stale `RUNNING` rows both count, so a run killed by
+  the OOM killer does not retry forever. A successful manual `diarize` clears it
+  from the queue.
+- Timing: at about 0.5× realtime, two 1-hour recordings add about an hour to a
+  run. `plaud-brain.service` allows 3 hours (`TimeoutStartSec=3h`), and the
+  timer starts the next run only 15 minutes after the previous one finishes.
+- Backfill: `plaud-brain diarize-pending --limit N`, ideally while the timer is
+  stopped or at night. The per-recording advisory lock makes an overlapping
+  timer run wait and then reuse the stored result.
+- Summaries generated before diarization keep no speaker labels; refresh them
+  deliberately with `plaud-brain summarize <plaud-id> --refresh`.
+- Work files under `data/work/<plaud-id>/diarization/` are deleted after every
+  run, successful or not.
+
 ## Apply migration
 
 ```bash

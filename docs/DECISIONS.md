@@ -140,3 +140,20 @@ Acceptance evidence required before changing the status to Accepted:
 Rollback: set `DIARIZATION_PROVIDER=disabled`. Stored transcripts are never
 modified by diarization except for the nullable `speaker` projection, which
 can be cleared without touching STT text or timestamps.
+
+## ADR-020 — Opt-in automatic diarization in run-once
+Proposed. Depends on ADR-019.
+
+Decision (to confirm): `DIARIZATION_AUTO=true` diarizes recordings without a
+speaker projection during `run-once`, after STT and before automatic
+summaries. Each run is bounded by `DIARIZATION_AUTO_LIMIT` (default 2) and
+selects newest first so a backfill never delays fresh recordings. A recording is
+skipped after `DIARIZATION_MAX_ATTEMPTS` unsuccessful runs, counting stale
+`RUNNING` rows so an OOM-killed process cannot loop. A PostgreSQL advisory lock
+per recording serializes manual and scheduled runs, and the normalized audio
+copy is always removed. Diarization failures never block ingestion, summaries,
+or indexing. Existing summaries are not regenerated automatically.
+
+Acceptance evidence: ADR-019 accepted; the long-recording row of the M6a table
+shows that `DIARIZATION_AUTO_LIMIT` recordings fit inside `TimeoutStartSec=3h`
+together with STT.

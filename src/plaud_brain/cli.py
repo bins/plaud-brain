@@ -69,6 +69,21 @@ def build(settings: Settings) -> tuple[PostgresStore, Pipeline, WhisperCppTransc
     return store, pipeline, local_transcriber
 
 
+def build_diarization_service(settings: Settings, store: PostgresStore) -> DiarizationService:
+    if settings.diarization_provider != "pyannote":
+        raise ValueError("DIARIZATION_PROVIDER must be pyannote to run speaker diarization")
+    if settings.diarization_auto_limit < 1 or settings.diarization_max_attempts < 1:
+        raise ValueError("DIARIZATION_AUTO_LIMIT and DIARIZATION_MAX_ATTEMPTS must be positive")
+    diarizer = PyannoteDiarizer(
+        model=settings.diarization_model,
+        token_env=settings.diarization_token_env,
+        min_speakers=settings.diarization_min_speakers,
+        max_speakers=settings.diarization_max_speakers,
+        ffmpeg_bin=settings.ffmpeg_bin,
+    )
+    return DiarizationService(store, diarizer, settings.data_dir)
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="plaud-brain")
     p.add_argument("--verbose", action="store_true")
@@ -83,6 +98,8 @@ def parser() -> argparse.ArgumentParser:
     diarize = sub.add_parser("diarize")
     diarize.add_argument("plaud_id")
     diarize.add_argument("--refresh", action="store_true")
+    diarize_pending = sub.add_parser("diarize-pending")
+    diarize_pending.add_argument("--limit", type=int)
     recordings = sub.add_parser("recordings")
     recordings.add_argument("--limit", type=int, default=20)
     transcript = sub.add_parser("transcript")
@@ -206,6 +223,20 @@ def main() -> None:
     elif args.command == "run-once":
         discovered = pipeline.discover(settings.plaud_lookback_days, settings.plaud_page_size)
         result = pipeline.process(args.limit)
+        # Before summaries, so a recording diarized in this run is summarized
+        # with speaker labels.
+        diarization_result = {"diarized": 0, "diarization_cached": 0, "diarization_failed": 0}
+        if settings.diarization_auto:
+            try:
+                diarization_result.update(
+                    build_diarization_service(settings, store).diarize_pending(
+                        settings.diarization_auto_limit,
+                        settings.diarization_max_attempts,
+                    )
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("automatic diarization failed")
+                diarization_result["diarization_failed"] += 1
         summary_result = (
             summary_service.summarize_pending(args.limit)
             if settings.summary_auto
@@ -224,7 +255,17 @@ def main() -> None:
             except Exception:
                 logging.getLogger(__name__).exception("embedding index failed")
                 index_result["index_failed"] = 1
-        print(json.dumps({"discovered": discovered, **result, **summary_result, **index_result}))
+        print(
+            json.dumps(
+                {
+                    "discovered": discovered,
+                    **result,
+                    **diarization_result,
+                    **summary_result,
+                    **index_result,
+                }
+            )
+        )
     elif args.command == "status":
         print(json.dumps(store.status_counts(), indent=2, default=str))
     elif args.command == "serve":
@@ -242,18 +283,10 @@ def main() -> None:
             raise SystemExit(str(exc)) from exc
         serve_web(web_app, settings.web_host, settings.web_port)
     elif args.command == "diarize":
-        if settings.diarization_provider != "pyannote":
-            raise SystemExit(
-                "DIARIZATION_PROVIDER must be pyannote to run speaker diarization"
-            )
-        diarizer = PyannoteDiarizer(
-            model=settings.diarization_model,
-            token_env=settings.diarization_token_env,
-            min_speakers=settings.diarization_min_speakers,
-            max_speakers=settings.diarization_max_speakers,
-            ffmpeg_bin=settings.ffmpeg_bin,
-        )
-        service = DiarizationService(store, diarizer, settings.data_dir)
+        try:
+            service = build_diarization_service(settings, store)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         try:
             result, cached = service.diarize_one(
                 args.plaud_id,
@@ -269,6 +302,15 @@ def main() -> None:
                 ensure_ascii=False,
             )
         )
+    elif args.command == "diarize-pending":
+        try:
+            service = build_diarization_service(settings, store)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        limit = settings.diarization_auto_limit if args.limit is None else args.limit
+        if limit < 1:
+            raise SystemExit("--limit must be positive")
+        print(json.dumps(service.diarize_pending(limit, settings.diarization_max_attempts)))
     elif args.command == "recordings":
         print(json.dumps(store.list_recordings(args.limit), indent=2, default=str, ensure_ascii=False))
     elif args.command == "transcript":

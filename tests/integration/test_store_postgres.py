@@ -324,3 +324,77 @@ def test_dashboard_returns_aggregate_counts():
     assert dashboard["summaries"] >= 1
     assert dashboard["decisions"] >= 1
     assert dashboard["embeddings"] >= 0
+
+
+def _transcribed_recording(store, plaud_id, created_at, segments=True):
+    row = store.upsert_recording(PlaudRecording(plaud_id=plaud_id, name=plaud_id))
+    transcript_id = store.save_transcript(
+        row["id"],
+        TranscriptResult(
+            engine="whisper.cpp",
+            model="test.bin",
+            language="en",
+            duration_ms=1000,
+            raw_json={},
+            segments=[TranscriptSegment(0, 0, 1000, "hello")] if segments else [],
+            normalized_audio=Path("/tmp/test.wav"),
+        ),
+    )
+    with store.connect() as conn:
+        conn.execute(
+            """
+            UPDATE recordings
+            SET audio_path='/tmp/test.wav', audio_sha256='audio-hash', created_at=%s
+            WHERE id=%s
+            """,
+            (created_at, row["id"]),
+        )
+    return row["id"], transcript_id
+
+
+def test_pending_diarizations_selects_missing_newest_first_with_attempt_cap():
+    store = PostgresStore(DB)
+    with store.connect() as conn:
+        conn.execute("DELETE FROM recordings")
+    _transcribed_recording(store, "pending-old", "2026-01-01T00:00:00Z")
+    _transcribed_recording(store, "pending-new", "2026-03-01T00:00:00Z")
+    _transcribed_recording(store, "pending-empty", "2026-04-01T00:00:00Z", segments=False)
+    done_id, done_transcript = _transcribed_recording(store, "pending-done", "2026-05-01T00:00:00Z")
+    failing_id, _ = _transcribed_recording(store, "pending-failing", "2026-06-01T00:00:00Z")
+    crashed_id, _ = _transcribed_recording(store, "pending-crashed", "2026-07-01T00:00:00Z")
+
+    store.save_diarization(
+        done_transcript,
+        "audio-hash",
+        DiarizationResult("test", "v1", {}, [DiarizationTurn(0, 1000, "SPEAKER_00")]),
+        {0: "SPEAKER_00"},
+    )
+    for _ in range(2):
+        store.finish_run(store.start_run(failing_id, "DIARIZATION"), False, "E", "failed")
+    store.start_run(crashed_id, "DIARIZATION")  # left RUNNING, as after an OOM kill
+    store.start_run(crashed_id, "DIARIZATION")
+
+    ids = [row["plaud_id"] for row in store.pending_diarizations(max_attempts=3, limit=10)]
+    assert ids == ["pending-crashed", "pending-failing", "pending-new", "pending-old"]
+
+    capped = [row["plaud_id"] for row in store.pending_diarizations(max_attempts=2, limit=10)]
+    assert capped == ["pending-new", "pending-old"]
+
+    assert [row["plaud_id"] for row in store.pending_diarizations(3, 1)] == ["pending-crashed"]
+
+
+def test_diarization_lock_blocks_other_sessions_until_released():
+    store = PostgresStore(DB)
+    with store.diarization_lock("lock-check"):
+        with psycopg.connect(DB) as other:
+            acquired = other.execute(
+                "SELECT pg_try_advisory_lock(hashtext(%s)) AS ok",
+                ("plaud-brain:diarization:lock-check",),
+            ).fetchone()[0]
+        assert acquired is False
+    with psycopg.connect(DB) as other:
+        acquired = other.execute(
+            "SELECT pg_try_advisory_lock(hashtext(%s)) AS ok",
+            ("plaud-brain:diarization:lock-check",),
+        ).fetchone()[0]
+    assert acquired is True
