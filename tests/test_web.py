@@ -147,3 +147,10 @@ def test_ui_avoids_html_injection_sinks():
     assert "innerHTML" not in JS
     assert "eval(" not in JS
     assert '<script src="/app.js"></script>' in HTML
+
+
+def test_transcript_view_shows_speaker_labels_as_text():
+    # Speaker labels come from the diarization model, so they are inserted as
+    # text, like every other dynamic value.
+    assert "s.speaker?`${fmtTime(s.start_ms)} · ${s.speaker}`:fmtTime(s.start_ms)" in JS
+    assert "innerHTML" not in JS
