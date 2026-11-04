@@ -28,6 +28,37 @@ class FakeOutput:
     speaker_diarization = FakeAnnotation()
 
 
+class FakeWaveform:
+    def __init__(self, shape):
+        self.shape = shape
+
+
+def _wav_without_torch(audio_path):
+    """Stand-in for the PyTorch tensor step with the same error contract."""
+    try:
+        with wave.open(str(audio_path), "rb") as wav:
+            shape = (wav.getnchannels(), wav.getnframes())
+            return {"waveform": FakeWaveform(shape), "sample_rate": wav.getframerate()}
+    except (wave.Error, OSError) as exc:
+        raise PyannoteDiarizationError("audio must be a readable PCM WAV") from exc
+
+
+@pytest.fixture
+def no_torch(monkeypatch):
+    """Let adapter tests run in CI, which does not install PyTorch."""
+    monkeypatch.setattr(
+        PyannoteDiarizer, "_load_pcm_wav", staticmethod(_wav_without_torch)
+    )
+
+
+def _write_wav(path, channels=1, sample_width=2, frames=b"\x00\x00" * 16_000):
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(sample_width)
+        wav.setframerate(16_000)
+        wav.writeframes(frames)
+
+
 class FakePipeline:
     def __init__(self):
         self.calls = []
@@ -37,7 +68,7 @@ class FakePipeline:
         return FakeOutput()
 
 
-def test_pyannote_adapter_uses_exclusive_turns(monkeypatch, tmp_path):
+def test_pyannote_adapter_uses_exclusive_turns(monkeypatch, tmp_path, no_torch):
     audio = tmp_path / "audio.wav"
     with wave.open(str(audio), "wb") as wav:
         wav.setnchannels(1)
@@ -103,7 +134,7 @@ def test_pyannote_adapter_reports_model_access_failure_without_token():
     assert "secret-token" not in str(exc_info.value)
 
 
-def test_pyannote_adapter_normalizes_compressed_audio(monkeypatch, tmp_path):
+def test_pyannote_adapter_normalizes_compressed_audio(monkeypatch, tmp_path, no_torch):
     audio = tmp_path / "audio.source"
     audio.write_bytes(b"compressed")
     pipeline = FakePipeline()
@@ -130,3 +161,23 @@ def test_pyannote_adapter_normalizes_compressed_audio(monkeypatch, tmp_path):
 
     assert len(result.turns) == 2
     assert pipeline.calls[0][0]["sample_rate"] == 16_000
+
+
+def test_pcm_wav_loader_builds_normalized_float_tensor(tmp_path):
+    torch = pytest.importorskip("torch")
+    audio = tmp_path / "stereo.wav"
+    # Two stereo frames: (max, min) then (zero, half).
+    frames = (32767).to_bytes(2, "little", signed=True)
+    frames += (-32768).to_bytes(2, "little", signed=True)
+    frames += (0).to_bytes(2, "little", signed=True)
+    frames += (16384).to_bytes(2, "little", signed=True)
+    _write_wav(audio, channels=2, frames=frames)
+
+    loaded = PyannoteDiarizer._load_pcm_wav(audio)
+
+    assert loaded["sample_rate"] == 16_000
+    waveform = loaded["waveform"]
+    assert waveform.dtype == torch.float32
+    assert tuple(waveform.shape) == (2, 2)
+    assert waveform[0].tolist() == pytest.approx([32767 / 32768, 0.0])
+    assert waveform[1].tolist() == pytest.approx([-1.0, 0.5])
