@@ -398,3 +398,37 @@ def test_diarization_lock_blocks_other_sessions_until_released():
             ("plaud-brain:diarization:lock-check",),
         ).fetchone()[0]
     assert acquired is True
+
+
+def test_pkb_export_queries_list_transcribed_recordings_and_their_actions():
+    store = PostgresStore(DB)
+    with store.connect() as conn:
+        conn.execute("DELETE FROM recordings")
+    _, with_summary = _transcribed_recording(store, "export-b", "2026-02-01T00:00:00Z")
+    _transcribed_recording(store, "export-a", "2026-01-01T00:00:00Z")
+    _transcribed_recording(store, "export-empty", "2026-03-01T00:00:00Z", segments=False)
+    store.upsert_recording(PlaudRecording(plaud_id="export-pending", name="Pending"))
+    store.save_summary(
+        with_summary,
+        "test",
+        "summary-v1",
+        "v1",
+        {
+            "summary": "Summary",
+            "topics": [],
+            "decisions": [],
+            "action_items": [
+                {"task": "Second", "owner": None, "due": None, "timestamp_ms": None},
+                {"task": "First", "owner": "Ana", "due": "Mon", "timestamp_ms": 1000},
+            ],
+        },
+    )
+
+    assert [row["plaud_id"] for row in store.list_pkb_export_ids()] == ["export-a", "export-b"]
+    actions = store.list_recording_actions("export-b")
+    assert [(a["seq"], a["task"], a["status"]) for a in actions] == [
+        (0, "Second", "OPEN"),
+        (1, "First", "OPEN"),
+    ]
+    assert actions[1]["due"] == "Mon"
+    assert store.list_recording_actions("export-a") == []

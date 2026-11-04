@@ -93,6 +93,7 @@ plaud-brain ask "what did we decide?" # grounded answer with recording citations
 plaud-brain serve                     # local web interface on 127.0.0.1:8787
 plaud-brain diarize <plaud-id>         # add cached anonymous speaker labels
 plaud-brain diarize-pending --limit 5  # diarize recordings that have no speaker labels yet
+plaud-brain export-pkb                # write one Markdown file per recording for PKB
 plaud-brain show <plaud-id>           # combined summary and timestamped transcript
 plaud-brain decisions                 # list extracted decisions
 plaud-brain actions                   # list open action items
@@ -201,6 +202,14 @@ recording after `DIARIZATION_MAX_ATTEMPTS` unsuccessful runs. Use
 `plaud-brain diarize <plaud-id>` to retry a skipped one. A per-recording
 PostgreSQL lock stops a manual run and a timer run from processing the same
 recording twice. The normalized audio copy is deleted after every run.
+
+## PKB export
+
+`plaud-brain export-pkb` writes one Markdown file per transcribed recording to
+`PKB_EXPORT_DIR`, a folder inside the PKB knowledge root. PKB's worker then
+indexes it with local embeddings. Set `PKB_EXPORT_AUTO=true` to refresh the
+export at the end of every `run-once`. See `docs/PKB_EXPORT.md` for setup,
+file format, and safety rules.
 
 ## Scheduled ingestion
 

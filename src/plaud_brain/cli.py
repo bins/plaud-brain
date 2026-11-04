@@ -20,6 +20,7 @@ from plaud_brain.benchmark import run_benchmark
 from plaud_brain.config import Settings
 from plaud_brain.embedding_service import EmbeddingService
 from plaud_brain.diarization_service import DiarizationService
+from plaud_brain.pkb_export import PkbExporter
 from plaud_brain.pipeline import Pipeline
 from plaud_brain.presentation import (
     render_knowledge_markdown,
@@ -84,6 +85,17 @@ def build_diarization_service(settings: Settings, store: PostgresStore) -> Diari
     return DiarizationService(store, diarizer, settings.data_dir)
 
 
+def build_pkb_exporter(settings: Settings, store: PostgresStore) -> PkbExporter:
+    if settings.pkb_export_dir is None:
+        raise ValueError("PKB_EXPORT_DIR must point to the export folder inside the PKB knowledge root")
+    return PkbExporter(
+        store,
+        settings.pkb_export_dir,
+        classification=settings.pkb_export_classification,
+        file_mode=settings.pkb_export_file_mode,
+    )
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="plaud-brain")
     p.add_argument("--verbose", action="store_true")
@@ -100,6 +112,7 @@ def parser() -> argparse.ArgumentParser:
     diarize.add_argument("--refresh", action="store_true")
     diarize_pending = sub.add_parser("diarize-pending")
     diarize_pending.add_argument("--limit", type=int)
+    sub.add_parser("export-pkb")
     recordings = sub.add_parser("recordings")
     recordings.add_argument("--limit", type=int, default=20)
     transcript = sub.add_parser("transcript")
@@ -242,6 +255,13 @@ def main() -> None:
             if settings.summary_auto
             else {"summarized": 0, "summary_failed": 0}
         )
+        export_result = {"exported": 0, "export_unchanged": 0, "export_deleted": 0, "export_failed": 0}
+        if settings.pkb_export_auto:
+            try:
+                export_result.update(build_pkb_exporter(settings, store).sync())
+            except Exception:
+                logging.getLogger(__name__).exception("PKB export failed")
+                export_result["export_failed"] += 1
         index_result: dict[str, int] = {
             "sources": 0,
             "indexed": 0,
@@ -262,6 +282,7 @@ def main() -> None:
                     **result,
                     **diarization_result,
                     **summary_result,
+                    **export_result,
                     **index_result,
                 }
             )
@@ -311,6 +332,12 @@ def main() -> None:
         if limit < 1:
             raise SystemExit("--limit must be positive")
         print(json.dumps(service.diarize_pending(limit, settings.diarization_max_attempts)))
+    elif args.command == "export-pkb":
+        try:
+            exporter = build_pkb_exporter(settings, store)
+            print(json.dumps(exporter.sync()))
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     elif args.command == "recordings":
         print(json.dumps(store.list_recordings(args.limit), indent=2, default=str, ensure_ascii=False))
     elif args.command == "transcript":
