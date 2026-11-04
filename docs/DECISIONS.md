@@ -157,3 +157,13 @@ or indexing. Existing summaries are not regenerated automatically.
 Acceptance evidence: ADR-019 accepted; the long-recording row of the M6a table
 shows that `DIARIZATION_AUTO_LIMIT` recordings fit inside `TimeoutStartSec=3h`
 together with STT.
+
+## ADR-021 — Feed PKB through a deterministic Markdown export
+Accepted. PKB indexes canonical Markdown files, and its capture API keeps every
+file immutable, which conflicts with summaries, speaker labels, and action
+status that change after transcription. plaud-brain therefore owns a dedicated
+export folder inside the PKB root and rewrites one file per recording whenever
+its rendering changes. PostgreSQL remains authoritative; the files are a
+regenerable projection. Exports never grant cloud AI access, write no
+timestamps of their own, and delete only files carrying the exporter's
+ownership marker after a complete, non-empty pass.

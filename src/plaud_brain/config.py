@@ -33,6 +33,11 @@ def _env_optional_int(name: str) -> int | None:
     return int(value) if value else None
 
 
+def _env_optional_path(name: str) -> Path | None:
+    value = os.getenv(name, "").strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -87,6 +92,10 @@ class Settings:
     diarization_auto: bool
     diarization_auto_limit: int
     diarization_max_attempts: int
+    pkb_export_dir: Path | None
+    pkb_export_auto: bool
+    pkb_export_classification: str
+    pkb_export_file_mode: int
     ffmpeg_bin: str
     ffprobe_bin: str
 
@@ -149,6 +158,10 @@ class Settings:
             diarization_auto=_env_bool("DIARIZATION_AUTO"),
             diarization_auto_limit=int(os.getenv("DIARIZATION_AUTO_LIMIT", "2")),
             diarization_max_attempts=int(os.getenv("DIARIZATION_MAX_ATTEMPTS", "3")),
+            pkb_export_dir=_env_optional_path("PKB_EXPORT_DIR"),
+            pkb_export_auto=_env_bool("PKB_EXPORT_AUTO"),
+            pkb_export_classification=os.getenv("PKB_EXPORT_CLASSIFICATION", "private").strip().lower(),
+            pkb_export_file_mode=int(os.getenv("PKB_EXPORT_FILE_MODE", "644"), 8),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         )

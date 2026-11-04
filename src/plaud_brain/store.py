@@ -584,6 +584,39 @@ class PostgresStore:
             )
             return list(cur.fetchall())
 
+    def list_pkb_export_ids(self) -> list[dict]:
+        """Transcribed recordings with at least one segment, in a stable order."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.plaud_id
+                FROM recordings r
+                JOIN transcripts t ON t.recording_id = r.id
+                WHERE r.status = 'TRANSCRIBED'
+                  AND EXISTS (
+                      SELECT 1 FROM transcript_segments s WHERE s.transcript_id = t.id
+                  )
+                ORDER BY r.plaud_id
+                """
+            )
+            return list(cur.fetchall())
+
+    def list_recording_actions(self, plaud_id: str) -> list[dict]:
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.seq, a.task, a.owner, a.due_text AS due, a.timestamp_ms, a.status
+                FROM action_items a
+                JOIN summaries s ON s.id = a.summary_id
+                JOIN transcripts t ON t.id = s.transcript_id
+                JOIN recordings r ON r.id = t.recording_id
+                WHERE r.plaud_id = %s
+                ORDER BY a.seq
+                """,
+                (plaud_id,),
+            )
+            return list(cur.fetchall())
+
     def update_action_status(self, action_id: str, status: str) -> dict | None:
         status = status.upper()
         if status not in {"OPEN", "DONE", "DISMISSED"}:
