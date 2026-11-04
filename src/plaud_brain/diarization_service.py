@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import logging
+import re
+import shutil
 from collections import defaultdict
 from pathlib import Path
 
 from plaud_brain.types import DiarizationResult, DiarizationTurn, Diarizer
+
+log = logging.getLogger(__name__)
+
+# The ID becomes a directory that is deleted after each run.
+_SAFE_ID = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def align_speakers(segments: list[dict], turns: list[DiarizationTurn]) -> dict[int, str]:
@@ -50,7 +58,30 @@ class DiarizationService:
         self.diarizer = diarizer
         self.data_dir = data_dir
 
+    def diarize_pending(self, limit: int, max_attempts: int) -> dict[str, int]:
+        """Diarize recordings that have none yet; one failure never stops the batch."""
+        counts = {"diarized": 0, "diarization_cached": 0, "diarization_failed": 0}
+        for row in self.store.pending_diarizations(max_attempts, limit):
+            plaud_id = row["plaud_id"]
+            try:
+                _, cached = self.diarize_one(plaud_id)
+            except Exception:
+                log.exception("diarization failed for %s", plaud_id)
+                counts["diarization_failed"] += 1
+                continue
+            counts["diarization_cached" if cached else "diarized"] += 1
+        return counts
+
     def diarize_one(self, plaud_id: str, refresh: bool = False) -> tuple[dict, bool]:
+        # The lock makes a manual run and a timer run on the same recording
+        # wait for each other; the second then hits the cache instead of
+        # running the model again.
+        with self.store.diarization_lock(plaud_id):
+            return self._diarize_locked(plaud_id, refresh)
+
+    def _diarize_locked(self, plaud_id: str, refresh: bool) -> tuple[dict, bool]:
+        if not _SAFE_ID.fullmatch(plaud_id):
+            raise ValueError("recording identifier contains unsupported characters")
         source = self.store.get_diarization_input(plaud_id)
         if source is None:
             raise ValueError(f"recording or transcript not found: {plaud_id}")
@@ -68,8 +99,8 @@ class DiarizationService:
             return cached, True
 
         run_id = self.store.start_run(source["recording_id"], "DIARIZATION")
+        work_dir = self.data_dir / "work" / plaud_id / "diarization"
         try:
-            work_dir = self.data_dir / "work" / plaud_id / "diarization"
             work_dir.mkdir(parents=True, exist_ok=True)
             result = self.diarizer.diarize(Path(source["audio_path"]), work_dir)
             self._validate_result(result)
@@ -89,6 +120,9 @@ class DiarizationService:
                 str(exc),
             )
             raise
+        finally:
+            # The normalized WAV is a full private copy of the audio; keep none.
+            shutil.rmtree(work_dir, ignore_errors=True)
         stored = self.store.get_diarization(plaud_id)
         if stored is None:
             raise RuntimeError("saved diarization could not be loaded")

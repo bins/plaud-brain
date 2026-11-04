@@ -92,6 +92,7 @@ plaud-brain semantic-search "launch risks" # hybrid semantic + literal ranking
 plaud-brain ask "what did we decide?" # grounded answer with recording citations
 plaud-brain serve                     # local web interface on 127.0.0.1:8787
 plaud-brain diarize <plaud-id>         # add cached anonymous speaker labels
+plaud-brain diarize-pending --limit 5  # diarize recordings that have no speaker labels yet
 plaud-brain show <plaud-id>           # combined summary and timestamped transcript
 plaud-brain decisions                 # list extracted decisions
 plaud-brain actions                   # list open action items
@@ -190,6 +191,16 @@ pulling unused CUDA packages.
 
 Matching audio checksum, provider, and model reuse the stored result. See
 `docs/M6_RUNBOOK.md` before enabling a model or uploading audio to any cloud.
+
+Set `DIARIZATION_AUTO=true` to diarize new recordings during `run-once`. It
+runs after transcription and before automatic summaries, so a recording
+diarized in the same run is summarized with speaker labels. Each run handles at
+most `DIARIZATION_AUTO_LIMIT` recordings (default 2), newest first, and skips a
+recording after `DIARIZATION_MAX_ATTEMPTS` unsuccessful runs. Use
+`plaud-brain diarize-pending` to backfill older recordings, and
+`plaud-brain diarize <plaud-id>` to retry a skipped one. A per-recording
+PostgreSQL lock stops a manual run and a timer run from processing the same
+recording twice. The normalized audio copy is deleted after every run.
 
 ## Scheduled ingestion
 

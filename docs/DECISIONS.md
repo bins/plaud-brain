@@ -106,3 +106,54 @@ onto existing transcript segments by greatest temporal overlap. Results are
 cached against the source audio checksum, provider, and model. The interface is
 provider-neutral because local pyannote and cloud diarized transcription have
 different privacy, cost, and hardware tradeoffs.
+
+## ADR-019 — Enable local pyannote Community-1 for manual diarization
+Proposed. Pending the M6a acceptance results recorded in
+`docs/M6_RUNBOOK.md` ("M6a acceptance results").
+
+Context: ADR-018 made diarization a separate, provider-neutral projection.
+The local adapter for `pyannote/speaker-diarization-community-1` (CPU PyTorch
+2.8.0, pyannote.audio 4.0.7) ran at about 0.47–0.54× realtime, peaking at
+about 2.3 GiB RSS on 60 s and 300 s samples on bmax-ai, and cache reuse
+avoided any repeated model run.
+
+Decision (to confirm): set `DIARIZATION_PROVIDER=pyannote` on bmax-ai for
+operator-invoked `plaud-brain diarize <plaud-id>` only. Speaker labels stay
+anonymous (`SPEAKER_00`, ...) and are not identities. Audio stays on the host;
+the Hugging Face token is used only to download the model and lives only in
+`.env`. The cloud alternative (`gpt-4o-transcribe-diarize`) is not adopted,
+because it uploads audio and transcribes again.
+
+Out of scope for this decision: automatic diarization in `run-once`,
+backfill of existing recordings, regenerating summaries after diarization, and
+speaker naming. Each needs its own decision after this one is accepted.
+
+Acceptance evidence required before changing the status to Accepted:
+- every row of the M6a acceptance table is `Pass`;
+- the long-recording row shows memory and wall time acceptable to run
+  alongside the 15-minute ingestion timer;
+- the manual speaker-count check on a known multi-speaker sample is
+  plausible;
+- normalized audio under `data/work/<plaud-id>/diarization/` is removed
+  after each run, or a retention rule is written here.
+
+Rollback: set `DIARIZATION_PROVIDER=disabled`. Stored transcripts are never
+modified by diarization except for the nullable `speaker` projection, which
+can be cleared without touching STT text or timestamps.
+
+## ADR-020 — Opt-in automatic diarization in run-once
+Proposed. Depends on ADR-019.
+
+Decision (to confirm): `DIARIZATION_AUTO=true` diarizes recordings without a
+speaker projection during `run-once`, after STT and before automatic
+summaries. Each run is bounded by `DIARIZATION_AUTO_LIMIT` (default 2) and
+selects newest first so a backfill never delays fresh recordings. A recording is
+skipped after `DIARIZATION_MAX_ATTEMPTS` unsuccessful runs, counting stale
+`RUNNING` rows so an OOM-killed process cannot loop. A PostgreSQL advisory lock
+per recording serializes manual and scheduled runs, and the normalized audio
+copy is always removed. Diarization failures never block ingestion, summaries,
+or indexing. Existing summaries are not regenerated automatically.
+
+Acceptance evidence: ADR-019 accepted; the long-recording row of the M6a table
+shows that `DIARIZATION_AUTO_LIMIT` recordings fit inside `TimeoutStartSec=3h`
+together with STT.

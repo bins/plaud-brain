@@ -41,6 +41,17 @@ class PostgresStore:
                 conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_name,))
 
     @contextmanager
+    def diarization_lock(self, plaud_id: str):
+        """Serialize diarization of one recording across timers and manual commands."""
+        lock_name = f"plaud-brain:diarization:{plaud_id}"
+        with self.connect() as conn:
+            conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (lock_name,))
+            try:
+                yield
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (lock_name,))
+
+    @contextmanager
     def rag_answer_lock(self, cache_key: str):
         """Serialize generation for one cache key to avoid duplicate paid calls."""
         lock_name = f"plaud-brain:rag:{cache_key}"
@@ -343,6 +354,41 @@ class PostgresStore:
                 if cur.rowcount != 1:
                     raise ValueError(f"unknown transcript segment sequence: {seq}")
         return diarization_id
+
+    def pending_diarizations(self, max_attempts: int, limit: int) -> list[dict]:
+        """Transcribed recordings with audio and segments but no diarization.
+
+        Newest first, so fresh recordings are not starved by a backfill. A
+        recording is skipped after ``max_attempts`` unsuccessful runs; RUNNING
+        rows count too, because a process killed mid-run (for example by the
+        OOM killer) never records FAILED and would otherwise retry forever.
+        """
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.plaud_id
+                FROM recordings r
+                JOIN transcripts t ON t.recording_id = r.id
+                LEFT JOIN diarizations d ON d.transcript_id = t.id
+                WHERE r.status = 'TRANSCRIBED'
+                  AND d.id IS NULL
+                  AND r.audio_path IS NOT NULL
+                  AND r.audio_sha256 IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM transcript_segments s WHERE s.transcript_id = t.id
+                  )
+                  AND (
+                      SELECT count(*) FROM processing_runs p
+                      WHERE p.recording_id = r.id
+                        AND p.stage = 'DIARIZATION'
+                        AND p.status IN ('FAILED', 'RUNNING')
+                  ) < %s
+                ORDER BY COALESCE(r.created_at, r.discovered_at) DESC, r.discovered_at DESC
+                LIMIT %s
+                """,
+                (max_attempts, limit),
+            )
+            return list(cur.fetchall())
 
     def pending_summaries(self, limit: int = 20) -> list[dict]:
         with self.connect() as conn, conn.cursor() as cur:

@@ -84,6 +84,9 @@ class Settings:
     diarization_token_env: str
     diarization_min_speakers: int | None
     diarization_max_speakers: int | None
+    diarization_auto: bool
+    diarization_auto_limit: int
+    diarization_max_attempts: int
     ffmpeg_bin: str
     ffprobe_bin: str
 
@@ -143,6 +146,9 @@ class Settings:
             diarization_token_env=os.getenv("DIARIZATION_TOKEN_ENV", "HF_TOKEN"),
             diarization_min_speakers=_env_optional_int("DIARIZATION_MIN_SPEAKERS"),
             diarization_max_speakers=_env_optional_int("DIARIZATION_MAX_SPEAKERS"),
+            diarization_auto=_env_bool("DIARIZATION_AUTO"),
+            diarization_auto_limit=int(os.getenv("DIARIZATION_AUTO_LIMIT", "2")),
+            diarization_max_attempts=int(os.getenv("DIARIZATION_MAX_ATTEMPTS", "3")),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         )
