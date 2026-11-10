@@ -107,6 +107,28 @@ model `pyannote/speaker-diarization-community-1`, date: ____
 | 8 | Normalized audio under `data/work/<id>/diarization/` removed after run | row 1 | — | — | — | — | Pending | or record a retention rule in ADR-019 |
 | 9 | Cloud provider privacy decision | — | — | — | — | — | N/A | no cloud provider proposed |
 
+`scripts/m6a_acceptance.py` collects the measurable columns. Run it on
+bmax-ai from the repository root with `DIARIZATION_PROVIDER=pyannote`:
+
+```bash
+# Rows 1-4: copied excerpts, no database writes.
+.venv/bin/python scripts/m6a_acceptance.py bench \
+  --label "60 s" --label "5 min" --label "difficult" --label "long" \
+  excerpt-60s.wav excerpt-5min.wav excerpt-noisy.wav long-copy.m4a
+# Rows 5-8: one transcribed recording (replaces its stored speaker labels
+# with a fresh run of the same model, as `diarize --refresh` does).
+.venv/bin/python scripts/m6a_acceptance.py check <plaud-id>
+```
+
+`bench` runs each file in its own process and reports wall time, realtime
+factor, peak RSS, and detected speakers. `check` reruns diarization, confirms
+the repeat is a cache hit (row 6), forces a provider failure with an unset
+token and confirms the stored labels and transcript are untouched (row 7),
+confirms the work directory is gone (row 8), and prints alignment statistics
+plus the first speaker-change times to listen to (row 5). The output has no
+transcript text, names, or PLAUD IDs. It exits non-zero if an automated check
+fails.
+
 Speaker-count check: judge rows 1–4 by listening to the copied excerpt and
 comparing it with `plaud-brain show <plaud-id>`; note systematic confusions
 (e.g. two similar voices merged) without quoting content.
